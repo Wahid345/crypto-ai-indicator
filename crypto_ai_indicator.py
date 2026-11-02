@@ -30,9 +30,7 @@ def send_telegram_alert(message):
         print(f"Error sending Telegram message: {e}")
 
 def fetch_crypto_data(symbol='BTC/USDT', timeframe='1h', limit=500):
-    exchange = ccxt.gateio({
-    'enableRateLimit': True,
-})
+    exchange = ccxt.gate()
     ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
