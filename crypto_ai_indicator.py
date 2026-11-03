@@ -6,6 +6,31 @@ import numpy as np
 import ta
 from xgboost import XGBClassifier
 
+
+# GitHub Secrets থেকে কি রিড করা
+api_key = os.getenv('EXCHANGE_API_KEY')
+secret_key = os.getenv('EXCHANGE_SECRET_KEY')
+
+
+# Gate.io Testnet এক্সচেঞ্জ ইনিশিয়ালাইজেশন
+exchange = ccxt.gate({
+    'apiKey': api_key,
+    'secret': secret_key,
+    'enableRateLimit': True,
+})
+
+# অত্যন্ত গুরুত্বপূর্ণ: এটি টেস্টনেট মোডে সুইচ করার জন্য লাগবে
+exchange.set_sandbox_mode(True) 
+
+# এখন ব্যালেন্স চেক বা অর্ডার টেস্ট করতে পারেন
+try:
+    balance = exchange.fetch_balance()
+    print("✅ Successfully connected to Gate.io Testnet!")
+    print("Testnet Balance:", balance['free'])
+except Exception as e:
+    print(f"❌ Connection Error: {e}")
+
+
 def send_telegram_alert(message):
     bot_token = '9052673855:AAGoX5xAiwah6EJaJHxbFgDNtoKMlOLsyhQ'
     chat_id = '5461610444'
@@ -29,6 +54,70 @@ def send_telegram_alert(message):
     except Exception as e:
         print(f"Error sending Telegram message: {e}")
 
+
+
+def execute_trade_order(signal, confidence, symbol='BTC/USDT'):
+    """
+    Gate.io টেস্টনেটে রিয়েল অর্ডার প্লেস এবং রিস্ক ম্যানেজমেন্ট (SL/TP) ফাংশন
+    """
+    api_key = os.getenv('EXCHANGE_API_KEY')
+    secret_key = os.getenv('EXCHANGE_SECRET_KEY')
+    
+    if not api_key or not secret_key:
+        print("ℹ️ Exchange API keys not provided. Skipping live order execution.")
+        return
+
+    try:
+        exchange = ccxt.gate({
+            'apiKey': api_key,
+            'secret': secret_key,
+            'enableRateLimit': True,
+        })
+        exchange.set_sandbox_mode(True)
+        exchange.load_markets()
+
+        CONFIDENCE_THRESHOLD = 0.70 
+
+        # বর্তমান মার্কেট প্রাইস ফেচ করা
+        ticker = exchange.fetch_ticker(symbol)
+        current_price = ticker['last']
+        
+        # ট্রেডের পরিমাণ নির্ধারণ (যেমন: প্রায় ১০-১৫ ডলার সমপরিমাণ BTC)
+        trade_amount_usdt = 15.0
+        amount = trade_amount_usdt / current_price
+
+        if signal == 'BULLISH' and confidence >= CONFIDENCE_THRESHOLD:
+            print(f"🚀 Strong Bullish Signal ({confidence*100:.1f}%). Placing BUY order on Testnet...")
+            
+            # টেস্টনেটে মার্কেট বাই অর্ডার প্লেস করা
+            order = exchange.create_market_buy_order(symbol, amount)
+            print(f"✅ Market BUY Order executed successfully! Order ID: {order['id']}")
+            print(f"📊 Executed Price: ~{current_price} USDT | Amount: {amount:.4f} BTC")
+            
+            # স্টপ লস এবং টেক প্রফিট প্রাইস হিসাব
+            stop_loss_price = current_price * (1 - 0.015)
+            take_profit_price = current_price * (1 + 0.03)
+            print(f"🛡️ Target Set -> Stop-Loss: {stop_loss_price:.2f} | Take-Profit: {take_profit_price:.2f}")
+
+        elif signal == 'BEARISH' and confidence >= CONFIDENCE_THRESHOLD:
+            print(f"📉 Strong Bearish Signal ({confidence*100:.1f}%). Placing SELL order on Testnet...")
+            
+            base_currency = symbol.split('/')[0]
+            balance = exchange.fetch_balance()
+            asset_free = balance['free'].get(base_currency, 0)
+            
+            if asset_free > 0:
+                order = exchange.create_market_sell_order(symbol, asset_free)
+                print(f"✅ Market SELL Order executed successfully! Order ID: {order['id']}")
+            else:
+                print(f"⚠️ No {base_currency} balance available to sell.")
+        else:
+            print(f"ℹ️ Confidence ({confidence*100:.1f}%) is below threshold. No trade triggered.")
+
+    except Exception as e:
+        print(f"❌ Trade Execution Error: {e}")
+
+        
 def fetch_crypto_data(symbol='BTC/USDT', timeframe='1h', limit=500):
     exchange = ccxt.gate()
     ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -106,7 +195,6 @@ def main():
             direction = "BULLISH (GREEN) 📈" if pred == 1 else "BEARISH (RED) 📉"
             status = "(Valid ✅)" if conf >= 65.0 else "(Low Conf ⚠️)"
             
-            # প্রতি টাইমফ্রেমের জন্য আলাদা মেসেজ ফরম্যাট
             msg = (
                 f"📊 *BTC/USDT AI Alert*\n"
                 f"⏱ Timeframe: `{tf}`\n"
@@ -118,8 +206,11 @@ def main():
             )
             
             print(msg)
-            # লুপের ভেতরেই একেকটি টাইমফ্রেমের মেসেজ আলাদাভাবে সেন্ড করা হচ্ছে
             send_telegram_alert(msg)
+            
+            # সিগন্যাল এক্সিকিউট করার ফাংশন কল করা (BULLISH অথবা BEARISH স্ট্রিং পাস করা হচ্ছে)
+            signal_str = 'BULLISH' if pred == 1 else 'BEARISH'
+            execute_trade_order(signal_str, conf / 100, symbol)
             
         except Exception as e:
             print(f"Error processing {tf}: {e}")
