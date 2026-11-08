@@ -481,7 +481,7 @@ def process_symbol(symbol='SOL/USDT'):
     signal_side = 'BUY' if pred_val == 1 else 'SELL'
     
     # ২. কনফিডেন্স ৬০% বা তার বেশি হলে তবেই রিয়েল ট্রেড এক্সিকিউট করবে
-    if confidence >= 0.60:
+    if confidence >= 0.35:
         print(f"✅ AI Signal Confirmed: {signal_side} with {confidence*100:.2f}% confidence.")
         
         # বর্তমান মার্কেট প্রাইস ফেচ করা
@@ -511,7 +511,7 @@ def process_symbol(symbol='SOL/USDT'):
             print(f"❌ Failed to execute order on exchange.\n")
             
     else:
-        print(f"⚠️ Signal confidence too low ({confidence*100:.2f}% < 60%). Skipping trade in this cycle.\n")
+        print(f"⚠️ Signal confidence too low ({confidence*100:.2f}% < 35%). Skipping trade in this cycle.\n")
 
 def set_margin_and_leverage(exchange, symbol, leverage=10):
     try:
