@@ -1,5 +1,7 @@
 import os
 import csv
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from ccxt import prediction
 import requests
 import ccxt
@@ -14,6 +16,14 @@ import json
 from datetime import datetime
 from xgboost import XGBClassifier
 
+
+# Render Web Service-এর জন্য ফেক পোর্টের কাজ করবে
+def start_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+threading.Thread(target=start_dummy_server, daemon=True).start()
 # ==================== CONFIGURATION ====================
 api_key = '7552e60de58b227c6cb5056f5381e755'
 secret_key = 'd2f99c5bfc957564712a6602cfeda71b85040a6bb4d379714e6510723389eec6'
