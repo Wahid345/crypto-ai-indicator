@@ -2,8 +2,8 @@ name: Crypto AI Online Runner
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # প্রতি ১৫ মিনিট পরপর রান করবে
-  workflow_dispatch:
+    - cron: '*/15 * * * *' # প্রতি ১৫ মিনিট পরপর অটো রান করবে
+  workflow_dispatch: # ম্যানুয়ালি রান করার বাটন
 
 jobs:
   run-bot:
@@ -24,9 +24,10 @@ jobs:
 
       - name: Run Script
         env:
+          GATE_API_KEY: ${{ secrets.GATE_API_KEY }}
+          GATE_SECRET_KEY: ${{ secrets.GATE_SECRET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}
-          EXCHANGE_SECRET_KEY: ${{ secrets.EXCHANGE_SECRET_KEY }}
+          SIGNAL_CHAT_ID: ${{ secrets.SIGNAL_CHAT_ID }}
+          TRADE_CHAT_ID: ${{ secrets.TRADE_CHAT_ID }}
           TARGET_TIMEFRAME: '15m'
         run: python crypto_ai_indicator.py

@@ -1,5 +1,6 @@
 import os
 import csv
+from ccxt import prediction
 import requests
 import ccxt
 import pandas as pd
@@ -14,8 +15,8 @@ from datetime import datetime
 from xgboost import XGBClassifier
 
 # ==================== CONFIGURATION ====================
-api_key = '09c361b00b7927ec102b5df12dc40cd6'
-secret_key = '9e4a4ac91726b85854efe88aa03e7bd4da4c5b9c16280313c24e21db4eae2b98'
+api_key = '7552e60de58b227c6cb5056f5381e755'
+secret_key = 'd2f99c5bfc957564712a6602cfeda71b85040a6bb4d379714e6510723389eec6'
 
 BOT_TOKEN = '9052673855:AAGoX5xAiwah6EJaJHxbFgDNtoKMlOLsyhQ'
 SIGNAL_CHAT_ID = '5461610444'   # Signal Group
@@ -37,7 +38,64 @@ exchange_config = {
 }
 
 exchange = ccxt.gate(exchange_config)
-exchange.set_sandbox_mode(False)
+exchange.set_sandbox_mode(True)
+
+def send_daily_profit_summary():
+    try:
+        # ১. ফাইল চেক করা
+        if not os.path.exists(CSV_FILE):
+            print("Trade history file not found!")
+            return
+
+        # ২. Pandas দিয়ে CSV ফাইল পড়া
+        df = pd.read_csv(CSV_FILE)
+        
+        if df.empty:
+            print("No trades recorded yet.")
+            return
+
+        # ৩. Timestamp থেকে শুধু তারিখ আলাদা করা (যেমন: '2026-11-05')
+        # আপনার ফাইলে ফরম্যাট '2026-11-05 00:23:25' আকারে আছে
+        df['Date'] = pd.to_datetime(df['Timestamp']).dt.strftime('%Y-%m-%d')
+        
+        # আজকের তারিখ বের করা
+        today_str = datetime.now().strftime('%Y-%m-%d')
+        
+        # আজকের দিনের ট্রেডগুলো ফিল্টার করা
+        today_df = df[df['Date'] == today_str]
+        
+        total_trades_today = len(today_df)
+        total_trades_all = len(df)
+        
+        # মেসেজ তৈরি করা
+        message = (
+            f"📊 *Daily Trading Summary Report*\n"
+            f"📅 Date: {today_str}\n"
+            f"-----------------------------------\n"
+            f"🔹 Today's Total Trades: {total_trades_today}\n"
+            f"📈 Cumulative Trades (All-time): {total_trades_all}\n"
+            f"🚀 Bot Status: Active & Monitoring SOL/USDT"
+        )
+        
+        # টেলিগ্রামে পাঠানো
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            'chat_id': TRADE_CHAT_ID,
+            'text': message,
+            'parse_mode': 'Markdown'
+        }
+        
+        response = requests.post(url, json=payload)
+        if response.status_code == 200:
+            print("Daily summary sent successfully to Telegram!")
+        else:
+            print(f"Failed to send summary: {response.text}")
+
+    except Exception as e:
+        print(f"Error generating daily summary: {e}")
+
+# বট বন্ধ করার আগে বা নির্দিষ্ট সময়ে ফাংশনটি কল করতে পারেন:
+# send_daily_profit_summary()
 
 def send_telegram_alert(message, chat_id):
     if not BOT_TOKEN or not chat_id:
@@ -404,10 +462,13 @@ def process_symbol(symbol='SOL/USDT'):
     # ১. এআই মডেল থেকে সিগন্যাল ও কনফিডেন্স নেওয়া 
     # (আপনার প্রজেক্টের নিয়ম অনুযায়ী train_and_predict বা get_ai_signal ফাংশন ব্যবহার করবেন)
     # নিচে উদাহরণ হিসেবে আপনার মডেলের আউটপুট ধরা হলো:
-    prediction, confidence = train_and_predict(symbol, timeframe='15m')
+    prediction, confidence, _, _ = train_and_predict(symbol, timeframe='15m')
     
     # সিগন্যাল সাইড নির্ধারণ (ধরুন prediction 1 হলে BUY, অন্যথায় SELL)
-    signal_side = 'BUY' if prediction == 1 else 'SELL'
+    # prediction যদি Pandas Series বা Array হয়, তবে তার শেষ বা একক মানটি নেওয়ার জন্য:
+    pred_val = prediction.iloc[-1] if hasattr(prediction, 'iloc') else prediction
+
+    signal_side = 'BUY' if pred_val == 1 else 'SELL'
     
     # ২. কনফিডেন্স ৬০% বা তার বেশি হলে তবেই রিয়েল ট্রেড এক্সিকিউট করবে
     if confidence >= 0.60:
@@ -461,42 +522,33 @@ def set_margin_and_leverage(exchange, symbol, leverage=10):
 
 def place_futures_order_with_sl_tp(exchange, symbol, side, amount, entry_price, sl_percent=0.015, tp_percent=0.03):
     try:
-        # প্রথমে মার্জিন ও লেভারেজ কনফার্ম করে নেওয়া
-        set_margin_and_leverage(exchange, symbol, leverage=10)
-
-        # পজিশন সাইড অনুযায়ী এসএল (Stop Loss) এবং টিপি (Take Profit) প্রাইস হিসাব
-        if side.upper() == 'BUY': # Long Position
-            tp_price = entry_price * (1 + tp_percent)
-            sl_price = entry_price * (1 - sl_percent)
-            reduce_side = 'sell'
-        else: # Short Position
-            tp_price = entry_price * (1 - tp_percent)
-            sl_price = entry_price * (1 + sl_percent)
-            reduce_side = 'buy'
-
-        print(f"Placing {side} Market Order for {symbol}...")
+        # Gate.io ফিউচার্সে (swap) side সবসময় লোয়ারকেস 'buy' অথবা 'sell' হতে হবে
+        order_side = side.lower()
         
-        # মূল মার্কেট অর্ডার প্লেস করা
-        market_order = exchange.create_order(
+        # অ্যামাউন্ট নিশ্চিতভাবে ফ্লোট সংখ্যা হতে হবে
+        qty = float(amount)
+
+        # Gate.io ফিউচার্স অর্ডারের সঠিক প্যারামিটার
+        params = {
+            'reduce_only': False,
+        }
+
+        # CCXT দিয়ে ফিউচার্স মার্কেট অর্ডার প্লেস করা
+        order = exchange.create_order(
             symbol=symbol,
             type='market',
-            side=side,
-            amount=amount,
-            params={'margin_mode': 'isolated'} # কিছু এক্সচেঞ্জের ক্ষেত্রে এখানে মার্জিন মোড পাস করতে হয়
+            side=order_side,
+            amount=qty,
+            price=None,
+            params=params
         )
         
-        print(f"Order Executed! ID: {market_order.get('id')}")
-        
-        # হার্ড স্টপ-লস এবং টেক-প্রফিট ট্রিগার অর্ডার যুক্ত করার অংশ
-        # (আপনার প্রয়োজন অনুযায়ী Gate.io-এর conditional/stop অর্ডার প্যারামিটার এখানে যুক্ত করতে পারেন)
-        print(f"Target Set -> TP: {tp_price:.4f}, SL: {sl_price:.4f}")
-        
-        return market_order
+        print("✅ Futures Order Placed Successfully:", order)
+        return order
 
     except Exception as e:
-        print(f"Failed to place futures order: {e}")
+        print(f"❌ Failed to place futures order: {e}")
         return None
-
 
 def job():
     print(f"\n⏰ [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running SOL market cycle (20 SOL, 50x)...")
