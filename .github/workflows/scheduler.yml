@@ -2,7 +2,7 @@ name: Crypto AI Online Runner
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '*/15 * * * *' # প্রতি ১৫ মিনিট পরপর রান করবে
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Script
-       - env:
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           EXCHANGE_API_KEY: ${{ secrets.EXCHANGE_API_KEY }}

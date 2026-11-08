@@ -1,6 +1,9 @@
 ccxt
+xgboost
 pandas
 numpy
-xgboost
 scikit-learn
+schedule
 requests
+streamlit
+python-dotenv
