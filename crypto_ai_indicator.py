@@ -219,21 +219,24 @@ def send_gate_testnet_order(symbol, side, contracts):
     endpoint = "/futures/usdt/orders"
     url = host + prefix + endpoint
     
+    # SOL/USDT -> SOL_USDT (Futures Contract Format)
     settle_symbol = symbol.replace('/', '_')
-    size = contracts if side == 'buy' else -contracts
+    size = int(contracts) if side == 'buy' else -int(contracts)
     
     query_param = ""
+    # Market Order payload: price প্যারামিটার দেওয়া যাবে না
     body = {
         "contract": settle_symbol,
         "size": size,
-        "price": "0",  # মার্কেট অর্ডারের জন্য price "0" দিতে হবে
         "tif": "ioc",
         "text": "t-ai-bot"
     }
     
-    payload_str = json.dumps(body)
+    # JSON formatting exactly as gate API expects (no spaces around separators)
+    payload_str = json.dumps(body, separators=(',', ':'))
     timestamp = str(int(time.time()))
     
+    # Signature Generation
     hashed_payload = hashlib.sha512(payload_str.encode('utf-8')).hexdigest()
     s = f"POST\n{prefix + endpoint}\n{query_param}\n{hashed_payload}\n{timestamp}"
     signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
@@ -247,16 +250,18 @@ def send_gate_testnet_order(symbol, side, contracts):
     }
     
     try:
-        response = requests.post(url, headers=headers, data=payload_str)
+        response = requests.post(url, headers=headers, data=payload_str, timeout=10)
         result = response.json()
-        if response.status_code == 200 or 'id' in result:
-            print(f"✅ Direct API Order Placed Successfully! ID: {result.get('id')}")
+        
+        # 201 Created or 200 OK
+        if response.status_code in [200, 201] and 'id' in result:
+            print(f"✅ Direct API Order Placed Successfully! ID: {result.get('id')}", flush=True)
             return result
         else:
-            print(f"❌ Direct API Error: {result}")
+            print(f"❌ Direct API Error [{response.status_code}]: {result}", flush=True)
             return None
     except Exception as e:
-        print(f"❌ Request Exception: {e}")
+        print(f"❌ Request Exception: {e}", flush=True)
         return None
 
 def execute_futures_trade(symbol, signal_side, current_price, current_atr, confidence, leverage=50):
