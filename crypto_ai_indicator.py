@@ -89,7 +89,7 @@ def run_trading_bot():
             
         except Exception as e:
             print(f"Error occurred in main loop: {e}", flush=True)
-            send_telegram_message(SIGNAL_CHAT_ID, f"⚠️ *Bot Error Alert:* `{e}`")
+            send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode!)", SIGNAL_CHAT_ID)
             time.sleep(15)
 
 
