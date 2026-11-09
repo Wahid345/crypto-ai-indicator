@@ -51,23 +51,42 @@ exchange = ccxt.gate(exchange_config)
 exchange.set_sandbox_mode(True)
 
 def run_trading_bot():
-    print("Bot main loop started successfully...", flush=True)
+    print("Bot main loop started successfully and running 24/7...", flush=True)
     
+    send_telegram_message(SIGNAL_CHAT_ID, "🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!")
+
     while True:
         try:
-            print("Fetching market data and running AI prediction...", flush=True)
+            print(f"[{datetime.now()}] Fetching market data and running AI prediction for SOL/USDT...", flush=True)
             
-            # আপনার ডেটা ফেচিং, এআই মডেল সিগন্যাল এবং ট্রেড প্লেস করার কোড এখানে থাকবে
+            # ১. মার্কেট ডেটা এবং প্রাইস ফেচ করার কোড (আপনার কোড অনুযায়ী)
+            # current_price = ... 
+            # current_atr = ...
+            # confidence = ...
             
-            # প্রতি ১ মিনিট পর পর লুপ ঘুরবে
+            # ---------------------------------------------------------
+            # টেস্টিং কোডটি ঠিক এই জায়গায় বসাবেন:
+            # ---------------------------------------------------------
+            if True: # অথবা আসল কোডের ক্ষেত্রে (confidence >= CONFIDENCE_THRESHOLD)
+                print(f"Forcing test trade execution...", flush=True)
+                
+                success = execute_futures_trade(
+                    symbol='SOL/USDT', 
+                    signal_side='BULLISH', # বা আপনার মডেলের সিগন্যাল অনুযায়ী
+                    current_price=150.0,   # বর্তমান ডেমো বা রিয়েল প্রাইস ভ্যারিয়েবল
+                    current_atr=2.5,       # বর্তমান এটিআর (ATR) ভ্যারিয়েবল
+                    confidence=0.85,       # ডেমো কনফিডেন্স
+                    leverage=50
+                )
+            # ---------------------------------------------------------
+
+            # প্রতি ১ মিনিট (৬০ সেকেন্ড) পর পর লুপ ঘুরবে
             time.sleep(60)
             
         except Exception as e:
             print(f"Error occurred in main loop: {e}", flush=True)
-            time.sleep(10) # এরর খেলেও যেন বট ক্র্যাশ না করে
-
-if __name__ == "__main__":
-    run_trading_bot()
+            send_telegram_message(SIGNAL_CHAT_ID, f"⚠️ *Bot Error Alert:* `{e}`")
+            time.sleep(15)
 
 def send_daily_profit_summary():
     try:
