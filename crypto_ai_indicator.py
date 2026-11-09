@@ -217,10 +217,12 @@ def send_gate_testnet_order(symbol, side, contracts):
     size = int(contracts) if side == 'buy' else -int(contracts)
     
     query_param = ""
-    # Market Order payload: price প্যারামিটার দেওয়া যাবে না
+    
+    # Market Order payload: Testnet-এ price "0" দেওয়া বাধ্যতামূলক
     body = {
         "contract": settle_symbol,
         "size": size,
+        "price": "0",          # <--- এই ফিল্ডটি যোগ করা হয়েছে price empty এরর দূর করতে
         "tif": "ioc",
         "text": "t-ai-bot"
     }
@@ -248,13 +250,17 @@ def send_gate_testnet_order(symbol, side, contracts):
         
         # 201 Created or 200 OK
         if response.status_code in [200, 201] and 'id' in result:
-            print(f"✅ Direct API Order Placed Successfully! ID: {result.get('id')}", flush=True)
+            order_id = result.get('id')
+            print(f"✅ Direct API Order Placed Successfully! ID: {order_id}", flush=True)
+            send_telegram_alert(f"🟢 *Test Order Placed Successfully!*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
             return result
         else:
             print(f"❌ Direct API Error [{response.status_code}]: {result}", flush=True)
+            send_telegram_alert(f"⚠️ *Order Error:* `{result}`", SIGNAL_CHAT_ID)
             return None
     except Exception as e:
         print(f"❌ Request Exception: {e}", flush=True)
+        send_telegram_alert(f"⚠️ *Request Exception:* `{e}`", SIGNAL_CHAT_ID)
         return None
 
 def execute_futures_trade(symbol, signal_side, current_price, current_atr, confidence, leverage=50):
