@@ -29,8 +29,8 @@ def start_dummy_server():
 
 threading.Thread(target=start_dummy_server, daemon=True).start()
 # ==================== CONFIGURATION ====================
-api_key = '7552e60de58b227c6cb5056f5381e755'
-secret_key = 'd2f99c5bfc957564712a6602cfeda71b85040a6bb4d379714e6510723389eec6'
+api_key = 'a9c34f7d3ce1bdfb7d80ae11e8d69f73'
+secret_key = '4782ce9313e6961419fd3f2bc8988d5d67d6000ec3b1aff817068fa410b8a5c7'
 
 BOT_TOKEN = '9052673855:AAGoX5xAiwah6EJaJHxbFgDNtoKMlOLsyhQ'
 SIGNAL_CHAT_ID = '5461610444'   # Signal Group
