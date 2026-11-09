@@ -165,6 +165,11 @@ def send_telegram_alert(message, chat_id):
     except Exception as e:
         print(f"Telegram Error: {e}")
 
+# send_telegram_message নামটিকে ঠিক করার জন্য ছোট একটি অ্যালিয়াস ফাংশন
+def send_telegram_message(chat_id, message):
+    return send_telegram_alert(message, chat_id)
+
+
 def fetch_crypto_data(symbol='SOL/USDT', timeframe='15m', limit=500):
     ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
