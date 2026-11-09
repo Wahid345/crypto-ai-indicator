@@ -54,10 +54,26 @@ exchange_config = {
 exchange = ccxt.gate(exchange_config)
 exchange.set_sandbox_mode(True)
 
+
+def send_telegram_alert(message, chat_id):
+    if not BOT_TOKEN or not chat_id:
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        print(f"Telegram Error: {e}", flush=True)
+
+# send_telegram_message নামটিকে ঠিক করার জন্য ছোট একটি অ্যালিয়াস ফাংশন
+def send_telegram_message(chat_id, message):
+    return send_telegram_alert(message, chat_id)
+
+
 def run_trading_bot():
     print("Bot main loop started successfully and running 24/7...", flush=True)
     
-    # এখানে send_telegram_message এর বদলে send_telegram_alert ব্যবহার করা হয়েছে
+    # এখানে send_telegram_message এর বদলে send_telegram_alert ব্যবহার করা হয়েছে
     send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!", SIGNAL_CHAT_ID)
 
     while True:
@@ -91,7 +107,6 @@ def run_trading_bot():
 # ==================== MAIN EXECUTION ====================
 if __name__ == "__main__":
     run_trading_bot()
-
 
 def send_daily_profit_summary():
     try:
@@ -150,19 +165,6 @@ def send_daily_profit_summary():
 # বট বন্ধ করার আগে বা নির্দিষ্ট সময়ে ফাংশনটি কল করতে পারেন:
 # send_daily_profit_summary()
 
-def send_telegram_alert(message, chat_id):
-    if not BOT_TOKEN or not chat_id:
-        return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Telegram Error: {e}")
-
-# send_telegram_message নামটিকে ঠিক করার জন্য ছোট একটি অ্যালিয়াস ফাংশন
-def send_telegram_message(chat_id, message):
-    return send_telegram_alert(message, chat_id)
 
 
 def fetch_crypto_data(symbol='SOL/USDT', timeframe='15m', limit=500):
