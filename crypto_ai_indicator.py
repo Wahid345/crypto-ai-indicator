@@ -50,6 +50,25 @@ exchange_config = {
 exchange = ccxt.gate(exchange_config)
 exchange.set_sandbox_mode(True)
 
+def run_trading_bot():
+    print("Bot main loop started successfully...", flush=True)
+    
+    while True:
+        try:
+            print("Fetching market data and running AI prediction...", flush=True)
+            
+            # আপনার ডেটা ফেচিং, এআই মডেল সিগন্যাল এবং ট্রেড প্লেস করার কোড এখানে থাকবে
+            
+            # প্রতি ১ মিনিট পর পর লুপ ঘুরবে
+            time.sleep(60)
+            
+        except Exception as e:
+            print(f"Error occurred in main loop: {e}", flush=True)
+            time.sleep(10) # এরর খেলেও যেন বট ক্র্যাশ না করে
+
+if __name__ == "__main__":
+    run_trading_bot()
+
 def send_daily_profit_summary():
     try:
         # ১. ফাইল চেক করা
