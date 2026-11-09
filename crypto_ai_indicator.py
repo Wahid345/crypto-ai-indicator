@@ -88,6 +88,12 @@ def run_trading_bot():
             send_telegram_message(SIGNAL_CHAT_ID, f"⚠️ *Bot Error Alert:* `{e}`")
             time.sleep(15)
 
+
+# ==================== MAIN EXECUTION ====================
+if __name__ == "__main__":
+    run_trading_bot()
+
+    
 def send_daily_profit_summary():
     try:
         # ১. ফাইল চেক করা
