@@ -273,7 +273,7 @@ def execute_futures_trade(symbol, signal_side, current_price, current_atr, confi
             return True
         else:
             print("❌ Trade execution failed.", flush=True)
-            return false
+            return False
 
     except Exception as e:
         print(f"❌ Error in execute_futures_trade: {e}", flush=True)
