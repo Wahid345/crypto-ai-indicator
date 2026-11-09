@@ -19,9 +19,13 @@ from xgboost import XGBClassifier
 
 # Render Web Service-এর জন্য ফেক পোর্টের কাজ করবে
 def start_dummy_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
-    server.serve_forever()
+    try:
+        port = int(os.environ.get("PORT", 10000))
+        server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+        print(f"✅ Dummy web server successfully bound to port {port}", flush=True)
+        server.serve_forever()
+    except Exception as e:
+        print(f"❌ Dummy server bind error: {e}", flush=True)
 
 threading.Thread(target=start_dummy_server, daemon=True).start()
 # ==================== CONFIGURATION ====================
@@ -93,7 +97,7 @@ def run_trading_bot():
 if __name__ == "__main__":
     run_trading_bot()
 
-    
+
 def send_daily_profit_summary():
     try:
         # ১. ফাইল চেক করা
