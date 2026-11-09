@@ -464,28 +464,28 @@ def place_order_direct(symbol='SOL/USDT', size=1.0, leverage=50):
     try:
         print(f"🔄 Attempting to open {size} SOL order on {symbol} with {leverage}x leverage...", flush=True)
         
-        # লেভারেজ সেট করার চেষ্টা (যদি অলরেডি সেট থাকে তবে এক্সেপশন হ্যান্ডেল করবে)
+        # ১. লেভারেজ সেট করা (স্যান্ডবক্সে অনেক সময় এটি ওয়ার্নিং দিতে পারে, তাই ট্রাই-এক্সেপ্টে রাখা)
         try:
             exchange.set_leverage(leverage, symbol)
         except Exception:
             pass
 
-        # Gate.io ফিউচার্স পেয়ার আইডি বের করা (যেমন SOL_USDT)
+        # ২. Gate.io ফিউচার্স পেয়ার আইডি বের করা (যেমন SOL_USDT)
         market = exchange.market(symbol)
-        gate_symbol = market['id'] 
+        gate_symbol = market['id'] # যেমন SOL_USDT
         
-        # Gate.io ফিউচার্স মার্কেট অর্ডারের জন্য প্রাইস ফিল্ডে '0' বা বর্তমান মার্কেট প্রাইস স্ট্রিং দিতে হয়
+        # ৩. বর্তমান মার্কেট প্রাইস ফেচ করে নেওয়া
         ticker = exchange.fetch_ticker(symbol)
         current_price = str(ticker['last'])
         
-        # settlement currency (যেমন usdt)
+        # ৪. সেটেলমেন্ট কারেন্সি (ফিউচার্সের জন্য সাধারণত 'usdt')
         settle = 'usdt'
         
-        # সরাসরি Gate.io এর প্রাইভেট ফিউচার্স অর্ডার এন্ডপয়েন্ট কল করা
+        # ৫. সরাসরি Gate.io প্রাইভেট ফিউচার্স এন্ডপয়েন্ট কল করা (যা CCXT এর ইন্টারনাল প্রাইস এরর বাইপাস করবে)
         response = exchange.private_futures_post_orders(settle, {
             'contract': gate_symbol,
             'size': int(size),         # পজিটিভ সাইজ মানে লং (Buy)
-            'price': '0',              # Gate.io মার্কেট অর্ডারের জন্য price '0' গ্রহণ করে
+            'price': current_price,    # Gate.io টেস্টনেটে মার্কেট অর্ডারের জন্য প্রাইস পাস করা
             'tif': 'ioc',              # Immediate-Or-Cancel (Market order standard)
             'leverage': str(leverage),
             'auto_size': 'n'
