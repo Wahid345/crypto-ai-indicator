@@ -70,44 +70,6 @@ def send_telegram_message(chat_id, message):
     return send_telegram_alert(message, chat_id)
 
 
-def run_trading_bot():
-    print("Bot main loop started successfully and running 24/7...", flush=True)
-    
-    # এখানে send_telegram_message এর বদলে send_telegram_alert ব্যবহার করা হয়েছে
-    send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!", SIGNAL_CHAT_ID)
-
-    while True:
-        try:
-            print(f"[{datetime.now()}] Fetching market data and running AI prediction for SOL/USDT...", flush=True)
-            
-            # ---------------------------------------------------------
-            # টেস্টিং কোড
-            # ---------------------------------------------------------
-            if True: 
-                print(f"Forcing test trade execution...", flush=True)
-                
-                success = execute_futures_trade(
-                    symbol='SOL/USDT', 
-                    signal_side='BULLISH', 
-                    current_price=150.0,   
-                    current_atr=2.5,       
-                    confidence=0.85,       
-                    leverage=50
-                )
-            # ---------------------------------------------------------
-
-            # প্রতি ১ মিনিট (৬০ সেকেন্ড) পর পর লুপ ঘুরবে
-            time.sleep(60)
-            
-        except Exception as e:
-            print(f"Error occurred in main loop: {e}", flush=True)
-            send_telegram_alert(f"⚠️ *Bot Error:* `{e}`", SIGNAL_CHAT_ID)
-            time.sleep(15)
-
-# ==================== MAIN EXECUTION ====================
-if __name__ == "__main__":
-    run_trading_bot()
-
 def send_daily_profit_summary():
     try:
         # ১. ফাইল চেক করা
@@ -614,6 +576,44 @@ def place_futures_order_with_sl_tp(exchange, symbol, side, amount, entry_price, 
     except Exception as e:
         print(f"❌ Failed to place futures order: {e}")
         return None
+
+def run_trading_bot():
+    print("Bot main loop started successfully and running 24/7...", flush=True)
+    
+    # এখানে send_telegram_message এর বদলে send_telegram_alert ব্যবহার করা হয়েছে
+    send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!", SIGNAL_CHAT_ID)
+
+    while True:
+        try:
+            print(f"[{datetime.now()}] Fetching market data and running AI prediction for SOL/USDT...", flush=True)
+            
+            # ---------------------------------------------------------
+            # টেস্টিং কোড
+            # ---------------------------------------------------------
+            if True: 
+                print(f"Forcing test trade execution...", flush=True)
+                
+                success = execute_futures_trade(
+                    symbol='SOL/USDT', 
+                    signal_side='BULLISH', 
+                    current_price=150.0,   
+                    current_atr=2.5,       
+                    confidence=0.85,       
+                    leverage=50
+                )
+            # ---------------------------------------------------------
+
+            # প্রতি ১ মিনিট (৬০ সেকেন্ড) পর পর লুপ ঘুরবে
+            time.sleep(60)
+            
+        except Exception as e:
+            print(f"Error occurred in main loop: {e}", flush=True)
+            send_telegram_alert(f"⚠️ *Bot Error:* `{e}`", SIGNAL_CHAT_ID)
+            time.sleep(15)
+
+# ==================== MAIN EXECUTION ====================
+if __name__ == "__main__":
+    run_trading_bot()
 
 def job():
     print(f"\n⏰ [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running SOL market cycle (20 SOL, 50x)...")
