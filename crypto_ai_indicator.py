@@ -259,48 +259,25 @@ def send_gate_testnet_order(symbol, side, contracts):
 
 def execute_futures_trade(symbol, signal_side, current_price, current_atr, confidence, leverage=50):
     try:
-        # লেভারেজ ৫০x সেট করা
-        try:
-            exchange.set_leverage(leverage, symbol)
-            print(f"⚙️ Leverage successfully set to {leverage}x for {symbol}")
-        except Exception as lev_err:
-            print(f"⚠️ Leverage set warning (may already be set): {lev_err}")
-
-        atr_multiplier_sl = 2.0
-        atr_multiplier_tp = 4.0
-
-        if signal_side == 'BULLISH':
-            order_side = 'buy'
-            stop_loss_price = current_price - (current_atr * atr_multiplier_sl)
-            take_profit_price = current_price + (current_atr * atr_multiplier_tp)
-        else:
-            order_side = 'sell'
-            stop_loss_price = current_price + (current_atr * atr_multiplier_sl)
-            take_profit_price = current_price - (current_atr * atr_multiplier_tp)
-
-        # 🚀 কন্টাক্ট সাইজ নির্দিষ্টভাবে ২০ SOL করা হলো
-        contracts = 20  
+        # সিগন্যাল সাইড অনুযায়ী 'buy' বা 'sell' নির্ধারণ করা
+        side = 'buy' if signal_side == 'BULLISH' else 'sell'
+        contracts = 1  # আপনার পছন্দমতো কন্টাক্ট সাইজ (যেমন ১ SOL)
         
-        # Direct Gate.io Testnet API call
-        order_res = send_gate_testnet_order(symbol, order_side, contracts)
+        print(f"🔄 Executing {side.upper()} order for {symbol} with {leverage}x leverage...", flush=True)
         
-        if order_res:
-            log_trade_to_csv(symbol, signal_side, current_price, contracts, leverage, confidence, take_profit_price, stop_loss_price)
-
-            side_emoji = "🟢 LONG" if signal_side == 'BULLISH' else "🔴 SHORT"
-            trade_msg = (
-                f"{side_emoji} *SOL OPENED FUTURES TRADE (20 SOL / 50x)*\n"
-                f"• Symbol: `{symbol}`\n"
-                f"• Entry: `${current_price:.2f}`\n"
-                f"• Contracts: `{contracts} SOL` ({leverage}x)\n"
-                f"• 🎯 TP Target: `${take_profit_price:.2f}`\n"
-                f"• 🛡️ SL Target: `${stop_loss_price:.2f}`"
-            )
-            send_telegram_alert(trade_msg, chat_id=TRADE_CHAT_ID)
+        # সরাসরি আমাদের সেই নিখুঁত HTTP POST ফাংশন কল করা
+        result = send_gate_testnet_order(symbol=symbol, side=side, contracts=contracts)
+        
+        if result:
+            print("✅ Trade executed successfully via direct API!", flush=True)
             return True
+        else:
+            print("❌ Trade execution failed.", flush=True)
+            return false
+
     except Exception as e:
-        print(f"❌ Futures Trade Error for {symbol}: {e}")
-    return False
+        print(f"❌ Error in execute_futures_trade: {e}", flush=True)
+        return False
 
 def check_existing_position(symbol):
     global active_trade_in_progress
@@ -459,50 +436,7 @@ def get_ai_signal(symbol):
         
     return signal, confidence
 
-
-def place_order_direct(symbol='SOL/USDT', size=1.0, leverage=50):
-    try:
-        print(f"🔄 Attempting to open {size} SOL order on {symbol} with {leverage}x leverage...", flush=True)
-        
-        # ১. লেভারেজ সেট করা (স্যান্ডবক্সে অনেক সময় এটি ওয়ার্নিং দিতে পারে, তাই ট্রাই-এক্সেপ্টে রাখা)
-        try:
-            exchange.set_leverage(leverage, symbol)
-        except Exception:
-            pass
-
-        # ২. Gate.io ফিউচার্স পেয়ার আইডি বের করা (যেমন SOL_USDT)
-        market = exchange.market(symbol)
-        gate_symbol = market['id'] # যেমন SOL_USDT
-        
-        # ৩. বর্তমান মার্কেট প্রাইস ফেচ করে নেওয়া
-        ticker = exchange.fetch_ticker(symbol)
-        current_price = str(ticker['last'])
-        
-        # ৪. সেটেলমেন্ট কারেন্সি (ফিউচার্সের জন্য সাধারণত 'usdt')
-        settle = 'usdt'
-        
-        # ৫. সরাসরি Gate.io প্রাইভেট ফিউচার্স এন্ডপয়েন্ট কল করা (যা CCXT এর ইন্টারনাল প্রাইস এরর বাইপাস করবে)
-        response = exchange.private_futures_post_orders(settle, {
-            'contract': gate_symbol,
-            'size': int(size),         # পজিটিভ সাইজ মানে লং (Buy)
-            'price': current_price,    # Gate.io টেস্টনেটে মার্কেট অর্ডারের জন্য প্রাইস পাস করা
-            'tif': 'ioc',              # Immediate-Or-Cancel (Market order standard)
-            'leverage': str(leverage),
-            'auto_size': 'n'
-        })
-        
-        order_id = response.get('id', 'N/A')
-        print(f"✅ Order Placed Successfully! ID: {order_id}", flush=True)
-        send_telegram_alert(f"🟢 *Test Order Placed Successfully!*\nSymbol: `{symbol}`\nPrice: `{current_price}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
-        return True
-
-    except Exception as e:
-        print(f"❌ Failed to place order: {e}", flush=True)
-        send_telegram_alert(f"⚠️ *Order Error:* `{e}`", SIGNAL_CHAT_ID)
-        return False
-
-
-    
+ 
 def process_symbol(symbol='SOL/USDT'):
     print(f"Checking AI signal for {symbol}...")
     
