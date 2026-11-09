@@ -57,29 +57,25 @@ exchange.set_sandbox_mode(True)
 def run_trading_bot():
     print("Bot main loop started successfully and running 24/7...", flush=True)
     
-    send_telegram_message(SIGNAL_CHAT_ID, "🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!")
+    # এখানে send_telegram_message এর বদলে send_telegram_alert ব্যবহার করা হয়েছে
+    send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!", SIGNAL_CHAT_ID)
 
     while True:
         try:
             print(f"[{datetime.now()}] Fetching market data and running AI prediction for SOL/USDT...", flush=True)
             
-            # ১. মার্কেট ডেটা এবং প্রাইস ফেচ করার কোড (আপনার কোড অনুযায়ী)
-            # current_price = ... 
-            # current_atr = ...
-            # confidence = ...
-            
             # ---------------------------------------------------------
-            # টেস্টিং কোডটি ঠিক এই জায়গায় বসাবেন:
+            # টেস্টিং কোড
             # ---------------------------------------------------------
-            if True: # অথবা আসল কোডের ক্ষেত্রে (confidence >= CONFIDENCE_THRESHOLD)
+            if True: 
                 print(f"Forcing test trade execution...", flush=True)
                 
                 success = execute_futures_trade(
                     symbol='SOL/USDT', 
-                    signal_side='BULLISH', # বা আপনার মডেলের সিগন্যাল অনুযায়ী
-                    current_price=150.0,   # বর্তমান ডেমো বা রিয়েল প্রাইস ভ্যারিয়েবল
-                    current_atr=2.5,       # বর্তমান এটিআর (ATR) ভ্যারিয়েবল
-                    confidence=0.85,       # ডেমো কনফিডেন্স
+                    signal_side='BULLISH', 
+                    current_price=150.0,   
+                    current_atr=2.5,       
+                    confidence=0.85,       
                     leverage=50
                 )
             # ---------------------------------------------------------
@@ -89,9 +85,8 @@ def run_trading_bot():
             
         except Exception as e:
             print(f"Error occurred in main loop: {e}", flush=True)
-            send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode!)", SIGNAL_CHAT_ID)
+            send_telegram_alert(f"⚠️ *Bot Error:* `{e}`", SIGNAL_CHAT_ID)
             time.sleep(15)
-
 
 # ==================== MAIN EXECUTION ====================
 if __name__ == "__main__":
