@@ -460,27 +460,35 @@ def get_ai_signal(symbol):
     return signal, confidence
 
 
-def place_order_direct(symbol='SOL/USDT', size=20, leverage=50):
+def place_order_direct(symbol='SOL/USDT', size=1.0, leverage=50):
     try:
-        print(f"🔄 Attempting to open {size} SOL order on {symbol} with {leverage}x leverage...")
+        print(f"🔄 Attempting to open {size} SOL order on {symbol} with {leverage}x leverage...", flush=True)
         
-        # CCXT দিয়ে মার্কেট অর্ডার প্লেস করার সঠিক মেথড
+        # বর্তমান মার্কেট প্রাইস ফেচ করে নেওয়া (প্রাইস এরর এড়াতে)
+        ticker = exchange.fetch_ticker(symbol)
+        current_price = ticker['last']
+        
+        # CCXT দিয়ে ফিউচার্স মার্কেট অর্ডার প্লেস করা
         response = exchange.create_order(
             symbol=symbol,
             type='market',
             side='buy',
             amount=size,
+            price=current_price, # Gate.io ফিউচার্সের জন্য প্রাইস পাস করা বাধ্যতামূলক
             params={
                 'leverage': leverage,
                 'margin_mode': 'isolated'
             }
         )
         
-        print(f"✅ Order Placed Successfully! ID: {response.get('id', 'N/A')}")
+        order_id = response.get('id', 'N/A')
+        print(f"✅ Order Placed Successfully! ID: {order_id}", flush=True)
+        send_telegram_alert(f"🟢 *Test Order Placed Successfully!*\nSymbol: `{symbol}`\nPrice: `{current_price}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
         return True
 
     except Exception as e:
-        print(f"❌ Failed to place order: {e}")
+        print(f"❌ Failed to place order: {e}", flush=True)
+        send_telegram_alert(f"⚠️ *Order Error:* `{e}`", SIGNAL_CHAT_ID)
         return False
 
 def process_symbol(symbol='SOL/USDT'):
