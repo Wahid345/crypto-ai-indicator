@@ -464,22 +464,28 @@ def place_order_direct(symbol='SOL/USDT', size=1.0, leverage=50):
     try:
         print(f"🔄 Attempting to open {size} SOL order on {symbol} with {leverage}x leverage...", flush=True)
         
-        # বর্তমান মার্কেট প্রাইস ফেচ করে নেওয়া
+        # Gate.io ফিউচার্সের জন্য সরাসরি এক্সচেঞ্জের প্রাইভেট রিকোয়েস্ট ব্যবহার করা
+        # market order এর জন্য gate.io futures API এ price দিতে হয় '0' অথবা current market price string
         ticker = exchange.fetch_ticker(symbol)
-        current_price = ticker['last']
+        current_price = str(ticker['last'])
         
-        # Gate.io ফিউচার্স মার্কেট অর্ডারের জন্য সঠিক CCXT ফরম্যাট
-        response = exchange.create_order(
-            symbol=symbol,
-            type='market',
-            side='buy',
-            amount=size,
-            price=current_price, # অথবা ক্ষেত্রবিশেষে price=None রেখে params এ দিতে হতে পারে
-            params={
-                'leverage': leverage,
-                'margin_mode': 'isolated'
-            }
-        )
+        # CCXT এর মাধ্যমে Gate.io futures contract format (যেমন SOL_USDT) কনভার্ট করে নেওয়া
+        market = exchange.market(symbol)
+        gate_symbol = market['id'] # যেমন SOL_USDT
+        
+        # সরাসরি Gate.io এর ফিউচার্স অর্ডার এন্ডপয়েন্ট কল করা (CCXT এর মাধ্যমে)
+        # settlement currency (যেমন usdt) বের করা
+        settle = 'usdt'
+        
+        # Gate.io private post futures orders endpoint
+        # parameters: contract, size (positive for buy, negative for sell), price, tif
+        response = exchange.private_futures_post_orders(settle, {
+            'contract': gate_symbol,
+            'size': int(size), # ফিউচার্সে সাইজ পজিটিভ মানে লং/বাই
+            'price': current_price, # Gate.io ফিউচার্স মার্কেট অর্ডারে প্রাইস স্ট্রিং দিতে হয়
+            'tif': 'ioc', # Immediate-Or-Cancel (Market order standard)
+            'leverage': str(leverage)
+        })
         
         order_id = response.get('id', 'N/A')
         print(f"✅ Order Placed Successfully! ID: {order_id}", flush=True)
