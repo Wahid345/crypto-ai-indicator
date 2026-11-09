@@ -464,17 +464,17 @@ def place_order_direct(symbol='SOL/USDT', size=1.0, leverage=50):
     try:
         print(f"🔄 Attempting to open {size} SOL order on {symbol} with {leverage}x leverage...", flush=True)
         
-        # বর্তমান মার্কেট প্রাইস ফেচ করে নেওয়া (প্রাইস এরর এড়াতে)
+        # বর্তমান মার্কেট প্রাইস ফেচ করে নেওয়া
         ticker = exchange.fetch_ticker(symbol)
         current_price = ticker['last']
         
-        # CCXT দিয়ে ফিউচার্স মার্কেট অর্ডার প্লেস করা
+        # Gate.io ফিউচার্স মার্কেট অর্ডারের জন্য সঠিক CCXT ফরম্যাট
         response = exchange.create_order(
             symbol=symbol,
             type='market',
             side='buy',
             amount=size,
-            price=current_price, # Gate.io ফিউচার্সের জন্য প্রাইস পাস করা বাধ্যতামূলক
+            price=current_price, # অথবা ক্ষেত্রবিশেষে price=None রেখে params এ দিতে হতে পারে
             params={
                 'leverage': leverage,
                 'margin_mode': 'isolated'
