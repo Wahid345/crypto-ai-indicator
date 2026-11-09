@@ -47,13 +47,13 @@ exchange_config = {
     'secret': secret_key,
     'enableRateLimit': True,
     'options': {
-        'defaultType': 'swap'  # USDT Perpetual Futures
+        'defaultType': 'swap'   # USDT Perpetual Futures
     }
 }
 
 exchange = ccxt.gate(exchange_config)
-exchange.set_sandbox_mode(True)
-
+# exchange.set_sandbox_mode(True)  <--- স্যান্ডবক্স মোডটি বন্ধ রাখা হলো
+exchange.load_markets()
 
 def send_telegram_alert(message, chat_id):
     if not BOT_TOKEN or not chat_id:
