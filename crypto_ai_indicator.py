@@ -286,17 +286,17 @@ def execute_futures_trade(symbol, signal_side, current_price, current_atr, confi
         return False
 
 def check_existing_position(symbol):
-    global active_trade_in_progress
-    
+    """
+    Gate.io টেস্টনেট এপিআই থেকে চেক করে দেখবে নির্দিষ্ট সিম্বলের কোনো 
+    চলমান ওপেন পজিশন বা সাইজ আছে কি না।
+    """
     host = "https://api-testnet.gateapi.io"
     prefix = "/api/v4"
-    settle_symbol = symbol.replace('/', '_')
-    endpoint = f"/futures/usdt/positions/{settle_symbol}"
+    endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
     url = host + prefix + endpoint
     
     timestamp = str(int(time.time()))
-    query_param = ""
-    s = f"GET\n{prefix + endpoint}\n{query_param}\n\n{timestamp}"
+    s = f"GET\n{prefix + endpoint}\n\n\n{timestamp}"
     signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
     headers = {
@@ -305,24 +305,17 @@ def check_existing_position(symbol):
         'Timestamp': timestamp,
         'SIGN': signature
     }
+    
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            pos_size = 0
-            if isinstance(data, list) and len(data) > 0:
-                pos_size = float(data[0].get('size', 0))
-            elif isinstance(data, dict):
-                pos_size = float(data.get('size', 0))
-                
-            if pos_size != 0:
-                active_trade_in_progress = True
-                return True, data
+            size = int(data.get('size', 0))
+            return size != True and size != 0  # যদি সাইজ ০ এর বেশি হয়, মানে পজিশন ওপেন আছে
     except Exception as e:
-        print(f"❌ Position Check Error: {e}")
-        
-    active_trade_in_progress = False
-    return False, None
+        print(f"⚠️ Error checking position: {e}", flush=True)
+    
+    return False
 
 # ================= DIRECT GATE.IO CLOSE API =================
 def close_gate_position_direct(symbol, size, signal_side='buy'):
@@ -540,35 +533,24 @@ def place_futures_order_with_sl_tp(exchange, symbol, side, amount, entry_price, 
 def run_trading_bot():
     print("Bot main loop started successfully and running 24/7...", flush=True)
     
-    # এখানে send_telegram_message এর বদলে send_telegram_alert ব্যবহার করা হয়েছে
-    send_telegram_alert("🚀 *Crypto AI Trading Bot* is now live on Render (Test Mode)!", SIGNAL_CHAT_ID)
-
     while True:
         try:
-            print(f"[{datetime.now()}] Fetching market data and running AI prediction for SOL/USDT...", flush=True)
+            symbol = 'SOL/USDT'
             
-            # ---------------------------------------------------------
-            # টেস্টিং কোড
-            # ---------------------------------------------------------
-            if True: 
-                print(f"Forcing test trade execution...", flush=True)
-                
-                success = execute_futures_trade(
-                    symbol='SOL/USDT', 
-                    signal_side='BULLISH', 
-                    current_price=150.0,   
-                    current_atr=2.5,       
-                    confidence=0.85,       
-                    leverage=50
-                )
-            # ---------------------------------------------------------
-
-            # প্রতি ১ মিনিট (৬০ সেকেন্ড) পর পর লুপ ঘুরবে
+            # ১. চেক করুন ইতিমধ্যে কোনো ওপেন পজিশন আছে কি না
+            if check_existing_position(symbol):
+                print(f"⏳ Position already open for {symbol}. Skipping new trade to protect margin.", flush=True)
+                time.sleep(60)
+                continue
+            
+            # ২. পজিশন না থাকলে তবেই এন্ট্রি বা সিগন্যাল চেক করবে
+            print(f"[{datetime.now()}] No open position. Running AI prediction and executing trade...", flush=True)
+            execute_futures_trade(symbol=symbol, signal_side='BULLISH', contracts=1, leverage=10)
+            
             time.sleep(60)
             
         except Exception as e:
-            print(f"Error occurred in main loop: {e}", flush=True)
-            send_telegram_alert(f"⚠️ *Bot Error:* `{e}`", SIGNAL_CHAT_ID)
+            print(f"Error in main loop: {e}", flush=True)
             time.sleep(15)
 
 # ==================== MAIN EXECUTION ====================
