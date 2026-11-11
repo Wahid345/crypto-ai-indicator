@@ -287,8 +287,7 @@ def execute_futures_trade(symbol, signal_side, current_price, current_atr, confi
 
 def check_existing_position(symbol):
     """
-    Gate.io টেস্টনেট এপিআই থেকে চেক করে দেখবে নির্দিষ্ট সিম্বলের কোনো 
-    চলমান ওপেন পজিশন বা সাইজ আছে কি না।
+    Gate.io টেস্টনেট থেকে চেক করবে SOL/USDT-তে কোনো পজিশন রানিং আছে কি না।
     """
     host = "https://api-testnet.gateapi.io"
     prefix = "/api/v4"
@@ -296,11 +295,17 @@ def check_existing_position(symbol):
     url = host + prefix + endpoint
     
     timestamp = str(int(time.time()))
-    s = f"GET\n{prefix + endpoint}\n\n\n{timestamp}"
+    
+    # GET রিকোয়েস্টের জন্য খালি পে-লোডের SHA512 হ্যাশ
+    hashed_payload = hashlib.sha512("".encode('utf-8')).hexdigest()
+    
+    # Gate.io V4 Signature String: GET\nPREFIX_ENDPOINT\nQUERY_STRING\nHASHED_PAYLOAD\nTIMESTAMP
+    s = f"GET\n{prefix + endpoint}\n\n{hashed_payload}\n{timestamp}"
     signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
     headers = {
         'Accept': 'application/json',
+        'Content-Type': 'application/json',
         'KEY': api_key,
         'Timestamp': timestamp,
         'SIGN': signature
@@ -310,8 +315,16 @@ def check_existing_position(symbol):
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
+            # পজিশন সাইজ লং ট্রেডের জন্য পজিটিভ (+), শর্ট ট্রেডের জন্য নেগেটিভ (-) হতে পারে
             size = int(data.get('size', 0))
-            return size != True and size != 0  # যদি সাইজ ০ এর বেশি হয়, মানে পজিশন ওপেন আছে
+            
+            # সাইজ ০ না হলেই (অর্থাৎ পজিশন লং বা শর্ট যাই হোক) True রিটার্ন করবে
+            if size != 0:
+                print(f"🔍 Existing position detected! Size: {size}", flush=True)
+                return True
+        else:
+            print(f"⚠️ Position Check API Error [{response.status_code}]: {response.text}", flush=True)
+            
     except Exception as e:
         print(f"⚠️ Error checking position: {e}", flush=True)
     
