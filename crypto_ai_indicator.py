@@ -299,7 +299,6 @@ def check_existing_position(symbol):
     # GET রিকোয়েস্টের জন্য খালি পে-লোডের SHA512 হ্যাশ
     hashed_payload = hashlib.sha512("".encode('utf-8')).hexdigest()
     
-    # Gate.io V4 Signature String: GET\nPREFIX_ENDPOINT\nQUERY_STRING\nHASHED_PAYLOAD\nTIMESTAMP
     s = f"GET\n{prefix + endpoint}\n\n{hashed_payload}\n{timestamp}"
     signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
@@ -311,7 +310,7 @@ def check_existing_position(symbol):
         'SIGN': signature
     }
     
-   try:
+    try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
@@ -322,12 +321,13 @@ def check_existing_position(symbol):
                 return True
         else:
             print(f"⚠️ Position Check API Error [{response.status_code}]: {response.text}", flush=True)
-            return True  # এপিআই রেসপন্স খারাপ থাকলে সেফটির জন্য ট্রেড স্কিপ করবে
+            return True
             
     except Exception as e:
         print(f"⚠️ Error checking position: {e}", flush=True)
-        return True  # নেটওয়ার্ক এরর হলে সেফটির জন্য নতুন ট্রেড নেওয়া বন্ধ রাখবে
-
+        return True
+    
+    return False
 # ================= DIRECT GATE.IO CLOSE API =================
 def close_gate_position_direct(symbol, size, signal_side='buy'):
     host = "https://api-testnet.gateapi.io"
