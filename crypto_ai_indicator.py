@@ -2,7 +2,6 @@ import os
 import csv
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from ccxt import prediction
 import requests
 import ccxt
 import pandas as pd
@@ -16,18 +15,6 @@ import json
 from datetime import datetime
 from xgboost import XGBClassifier
 
-
-# Render Web Service-এর জন্য ফেক পোর্টের কাজ করবে
-def start_dummy_server():
-    try:
-        port = int(os.environ.get("PORT", 10000))
-        server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
-        print(f"✅ Dummy web server successfully bound to port {port}", flush=True)
-        server.serve_forever()
-    except Exception as e:
-        print(f"❌ Dummy server bind error: {e}", flush=True)
-
-threading.Thread(target=start_dummy_server, daemon=True).start()
 # ==================== CONFIGURATION ====================
 api_key = 'a9c34f7d3ce1bdfb7d80ae11e8d69f73'
 secret_key = '4782ce9313e6961419fd3f2bc8988d5d67d6000ec3b1aff817068fa410b8a5c7'
@@ -36,11 +23,8 @@ BOT_TOKEN = '9052673855:AAGoX5xAiwah6EJaJHxbFgDNtoKMlOLsyhQ'
 SIGNAL_CHAT_ID = '5461610444'   # Signal Group
 TRADE_CHAT_ID = '-5394519129'    # Profit Update Group
 
-# গ্লোবাল ভ্যারিয়েবল দিয়ে ট্রেড স্ট্যাটাস ট্র্যাক করার জন্য
-active_trade_in_progress = False
-
 CSV_FILE = "trade_history.csv"
-SYMBOLS = ['SOL/USDT']  # শুধুমাত্র SOL নিয়ে কাজ করবে
+SYMBOLS = ['SOL/USDT']
 
 exchange_config = {
     'apiKey': api_key,
@@ -52,8 +36,19 @@ exchange_config = {
 }
 
 exchange = ccxt.gate(exchange_config)
-# exchange.set_sandbox_mode(True)  <--- স্যান্ডবক্স মোডটি বন্ধ রাখা হলো
 exchange.load_markets()
+
+# Render Web Service-এর জন্য ফেক পোর্ট সার্ভার
+def start_dummy_server():
+    try:
+        port = int(os.environ.get("PORT", 10000))
+        server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+        print(f"✅ Dummy web server successfully bound to port {port}", flush=True)
+        server.serve_forever()
+    except Exception as e:
+        print(f"❌ Dummy server bind error: {e}", flush=True)
+
+threading.Thread(target=start_dummy_server, daemon=True).start()
 
 def send_telegram_alert(message, chat_id):
     if not BOT_TOKEN or not chat_id:
@@ -64,70 +59,6 @@ def send_telegram_alert(message, chat_id):
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
         print(f"Telegram Error: {e}", flush=True)
-
-# send_telegram_message নামটিকে ঠিক করার জন্য ছোট একটি অ্যালিয়াস ফাংশন
-def send_telegram_message(chat_id, message):
-    return send_telegram_alert(message, chat_id)
-
-
-def send_daily_profit_summary():
-    try:
-        # ১. ফাইল চেক করা
-        if not os.path.exists(CSV_FILE):
-            print("Trade history file not found!")
-            return
-
-        # ২. Pandas দিয়ে CSV ফাইল পড়া
-        df = pd.read_csv(CSV_FILE)
-        
-        if df.empty:
-            print("No trades recorded yet.")
-            return
-
-        # ৩. Timestamp থেকে শুধু তারিখ আলাদা করা (যেমন: '2026-11-05')
-        # আপনার ফাইলে ফরম্যাট '2026-11-05 00:23:25' আকারে আছে
-        df['Date'] = pd.to_datetime(df['Timestamp']).dt.strftime('%Y-%m-%d')
-        
-        # আজকের তারিখ বের করা
-        today_str = datetime.now().strftime('%Y-%m-%d')
-        
-        # আজকের দিনের ট্রেডগুলো ফিল্টার করা
-        today_df = df[df['Date'] == today_str]
-        
-        total_trades_today = len(today_df)
-        total_trades_all = len(df)
-        
-        # মেসেজ তৈরি করা
-        message = (
-            f"📊 *Daily Trading Summary Report*\n"
-            f"📅 Date: {today_str}\n"
-            f"-----------------------------------\n"
-            f"🔹 Today's Total Trades: {total_trades_today}\n"
-            f"📈 Cumulative Trades (All-time): {total_trades_all}\n"
-            f"🚀 Bot Status: Active & Monitoring SOL/USDT"
-        )
-        
-        # টেলিগ্রামে পাঠানো
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            'chat_id': TRADE_CHAT_ID,
-            'text': message,
-            'parse_mode': 'Markdown'
-        }
-        
-        response = requests.post(url, json=payload)
-        if response.status_code == 200:
-            print("Daily summary sent successfully to Telegram!")
-        else:
-            print(f"Failed to send summary: {response.text}")
-
-    except Exception as e:
-        print(f"Error generating daily summary: {e}")
-
-# বট বন্ধ করার আগে বা নির্দিষ্ট সময়ে ফাংশনটি কল করতে পারেন:
-# send_daily_profit_summary()
-
-
 
 def fetch_crypto_data(symbol='SOL/USDT', timeframe='15m', limit=500):
     ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -150,7 +81,6 @@ def prepare_features(df):
     df['BB_Width'] = df['BB_High'] - df['BB_Low']
     
     df['ATR'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=14)
-    
     df['Body_Size'] = (df['close'] - df['open']).abs()
     df['Upper_Shadow'] = df['high'] - df[['open', 'close']].max(axis=1)
     df['Lower_Shadow'] = df[['open', 'close']].min(axis=1) - df['low']
@@ -173,132 +103,23 @@ def train_and_predict(symbol, timeframe='15m'):
     
     model = XGBClassifier(n_estimators=150, learning_rate=0.05, max_depth=4, random_state=42, eval_metric='logloss')
     model.fit(X_train, y_train)
-    accuracy = model.score(X_test, y_test) * 100
     
     latest_features = X.iloc[[-1]]
     prediction = model.predict(latest_features)[0]
     probabilities = model.predict_proba(latest_features)[0]
     confidence = max(probabilities) * 100
     
-    latest_candle = df.iloc[-1]
-    return latest_candle, prediction, accuracy, confidence
+    return prediction, confidence
 
-def init_trade_log():
-    if not os.path.exists(CSV_FILE):
-        with open(CSV_FILE, mode='w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                'Timestamp', 'Symbol', 'Signal', 'Entry_Price', 
-                'Contracts', 'Leverage', 'Confidence', 'Take_Profit', 'Stop_Loss'
-            ])
-
-def log_trade_to_csv(symbol, signal_side, entry_price, contracts, leverage, confidence, tp_price, sl_price):
-    try:
-        init_trade_log()
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(CSV_FILE, mode='a', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                timestamp, symbol, signal_side, f"{entry_price:.2f}",
-                contracts, leverage, f"{confidence:.1f}%", f"{tp_price:.2f}", f"{sl_price:.2f}"
-            ])
-    except Exception as e:
-        print(f"⚠️ Failed to log trade to CSV: {e}")
-
-# ==================== DIRECT GATE.IO TESTNET API ORDER ====================
-def send_gate_testnet_order(symbol, side, contracts):
-    host = "https://api-testnet.gateapi.io"
-    prefix = "/api/v4"
-    endpoint = "/futures/usdt/orders"
-    url = host + prefix + endpoint
-    
-    # SOL/USDT -> SOL_USDT (Futures Contract Format)
-    settle_symbol = symbol.replace('/', '_')
-    size = int(contracts) if side == 'buy' else -int(contracts)
-    
-    query_param = ""
-    
-    # Market Order payload: Testnet-এ price "0" দেওয়া বাধ্যতামূলক
-    body = {
-        "contract": settle_symbol,
-        "size": size,
-        "price": "0",          # <--- এই ফিল্ডটি যোগ করা হয়েছে price empty এরর দূর করতে
-        "tif": "ioc",
-        "text": "t-ai-bot"
-    }
-    
-    # JSON formatting exactly as gate API expects (no spaces around separators)
-    payload_str = json.dumps(body, separators=(',', ':'))
-    timestamp = str(int(time.time()))
-    
-    # Signature Generation
-    hashed_payload = hashlib.sha512(payload_str.encode('utf-8')).hexdigest()
-    s = f"POST\n{prefix + endpoint}\n{query_param}\n{hashed_payload}\n{timestamp}"
-    signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
-    
-    headers = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'KEY': api_key,
-        'Timestamp': timestamp,
-        'SIGN': signature
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, data=payload_str, timeout=10)
-        result = response.json()
-        
-        # 201 Created or 200 OK
-        if response.status_code in [200, 201] and 'id' in result:
-            order_id = result.get('id')
-            print(f"✅ Direct API Order Placed Successfully! ID: {order_id}", flush=True)
-            send_telegram_alert(f"🟢 *Test Order Placed Successfully!*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
-            return result
-        else:
-            print(f"❌ Direct API Error [{response.status_code}]: {result}", flush=True)
-            send_telegram_alert(f"⚠️ *Order Error:* `{result}`", SIGNAL_CHAT_ID)
-            return None
-    except Exception as e:
-        print(f"❌ Request Exception: {e}", flush=True)
-        send_telegram_alert(f"⚠️ *Request Exception:* `{e}`", SIGNAL_CHAT_ID)
-        return None
-
-def execute_futures_trade(symbol, signal_side, current_price, current_atr, confidence, leverage=50):
-    try:
-        # সিগন্যাল সাইড অনুযায়ী 'buy' বা 'sell' নির্ধারণ করা
-        side = 'buy' if signal_side == 'BULLISH' else 'sell'
-        contracts = 1  # আপনার পছন্দমতো কন্টাক্ট সাইজ (যেমন ১ SOL)
-        
-        print(f"🔄 Executing {side.upper()} order for {symbol} with {leverage}x leverage...", flush=True)
-        
-        # সরাসরি আমাদের সেই নিখুঁত HTTP POST ফাংশন কল করা
-        result = send_gate_testnet_order(symbol=symbol, side=side, contracts=contracts)
-        
-        if result:
-            print("✅ Trade executed successfully via direct API!", flush=True)
-            return True
-        else:
-            print("❌ Trade execution failed.", flush=True)
-            return False
-
-    except Exception as e:
-        print(f"❌ Error in execute_futures_trade: {e}", flush=True)
-        return False
-
+# ==================== POSITION CHECK FUNCTION ====================
 def check_existing_position(symbol):
-    """
-    Gate.io টেস্টনেট থেকে চেক করবে SOL/USDT-তে কোনো পজিশন রানিং আছে কি না।
-    """
     host = "https://api-testnet.gateapi.io"
     prefix = "/api/v4"
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
     url = host + prefix + endpoint
     
     timestamp = str(int(time.time()))
-    
-    # GET রিকোয়েস্টের জন্য খালি পে-লোডের SHA512 হ্যাশ
     hashed_payload = hashlib.sha512("".encode('utf-8')).hexdigest()
-    
     s = f"GET\n{prefix + endpoint}\n\n{hashed_payload}\n{timestamp}"
     signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
@@ -314,47 +135,39 @@ def check_existing_position(symbol):
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            size = int(data.get('size', 0))
+            # Gate.io পজিশন অবজেক্ট বা লিস্ট হ্যান্ডেল করা
+            pos_item = data[0] if isinstance(data, list) and len(data) > 0 else data
+            size = float(pos_item.get('size', 0))
             
             if size != 0:
                 print(f"🔍 Existing position detected! Size: {size}", flush=True)
-                return True
-        else:
-            print(f"⚠️ Position Check API Error [{response.status_code}]: {response.text}", flush=True)
-            return True
-            
+                return True, pos_item
+        return False, None
     except Exception as e:
         print(f"⚠️ Error checking position: {e}", flush=True)
-        return True
-    
-    return False
-# ================= DIRECT GATE.IO CLOSE API =================
-def close_gate_position_direct(symbol, size, signal_side='buy'):
+        return False, None
+
+# ==================== ORDER PLACEMENT ====================
+def send_gate_testnet_order(symbol, side, contracts):
     host = "https://api-testnet.gateapi.io"
     prefix = "/api/v4"
     endpoint = "/futures/usdt/orders"
     url = host + prefix + endpoint
     
     settle_symbol = symbol.replace('/', '_')
-    
-    # যদি আগের এন্ট্রি BUY (Long) হয়, তবে ক্লোজ করতে হবে SELL (Negative size) দিয়ে
-    # আর যদি আগের এন্ট্রি SELL (Short) হয়, তবে ক্লোজ করতে হবে BUY (Positive size) দিয়ে
-    if signal_side.lower() == 'buy':
-        close_size = -int(abs(size))  # নেগেটিভ সাইজ দিয়ে লং ক্লোজ
-    else:
-        close_size = int(abs(size))   # পজিটিভ সাইজ দিয়ে শর্ট ক্লোজ
+    size = int(contracts) if side == 'buy' else -int(contracts)
     
     body = {
         "contract": settle_symbol,
-        "size": close_size,
-        "price": "0",  # মার্কেট অর্ডারের জন্য "0"
+        "size": size,
+        "price": "0",
         "tif": "ioc",
-        "reduce_only": True,
-        "text": "t-close-bot"
+        "text": "t-ai-bot"
     }
     
-    payload_str = json.dumps(body)
+    payload_str = json.dumps(body, separators=(',', ':'))
     timestamp = str(int(time.time()))
+    
     hashed_payload = hashlib.sha512(payload_str.encode('utf-8')).hexdigest()
     s = f"POST\n{prefix + endpoint}\n\n{hashed_payload}\n{timestamp}"
     signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
@@ -368,195 +181,48 @@ def close_gate_position_direct(symbol, size, signal_side='buy'):
     }
     
     try:
-        response = requests.post(url, headers=headers, data=payload_str)
+        response = requests.post(url, headers=headers, data=payload_str, timeout=10)
         result = response.json()
         
-        if response.status_code == 200 or 'id' in result:
-            print(f"✅ Direct Close Order Placed Successfully! ID: {result.get('id')}")
-            return True
+        if response.status_code in [200, 201] and 'id' in result:
+            order_id = result.get('id')
+            print(f"✅ Order Placed Successfully! ID: {order_id}", flush=True)
+            send_telegram_alert(f"🟢 *Test Order Placed Successfully!*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
+            return result
         else:
-            print(f"❌ Direct Close API Error: {result}")
-            return False
+            print(f"❌ API Error [{response.status_code}]: {result}", flush=True)
+            return None
     except Exception as e:
-        print(f"❌ Close Request Exception: {e}")
-        return False
-
-
-# ================= UPDATED MONITOR & CLOSE FUNCTION =================
-def monitor_and_close_position(symbol, target_profit_usd=1.0):
-    global active_trade_in_progress
-    
-    is_active, pos_data = check_existing_position(symbol)
-    if not is_active:
-        active_trade_in_progress = False
-        return
-        
-    try:
-        pos_item = pos_data[0] if isinstance(pos_data, list) and len(pos_data) > 0 else pos_data
-        unrealised_pnl = float(pos_item.get('unrealised_pnl', 0))
-        size = float(pos_item.get('size', 0))
-        mark_price = float(pos_item.get('mark_price', 0))
-        
-        print(f"📊 Active Trade Live PnL: ${unrealised_pnl:.2f} USDT (Target: ${target_profit_usd})")
-        
-        # 🎯 $1 বা তার বেশি প্রফিট হলে সঙ্গে সঙ্গে ক্লোজ করবে
-        if unrealised_pnl >= target_profit_usd:
-            print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position via Direct API...")
-            
-            # সরাসরি Gate.io API কল দিয়ে পজিশন ক্লোজ করা
-            success = close_gate_position_direct(symbol, size)
-            
-            if success:
-                active_trade_in_progress = False
-                print("✅ Position successfully closed at $1+ profit! Lock released.")
-                
-                close_msg = (
-                    f"🤖 *AUTO CLOSED SOL POSITION ($1+ PROFIT)*\n"
-                    f"• Symbol: `{symbol}`\n"
-                    f"• Profit Reached: `${unrealised_pnl:.2f}`\n"
-                    f"• Mark Price: `${mark_price}`"
-                )
-                send_telegram_alert(close_msg, chat_id=TRADE_CHAT_ID)
-            else:
-                print("⚠️ Failed to close position through Direct API, will retry in next cycle.")
-            
-    except Exception as e:
-        print(f"⚠️ Position Monitoring Error: {e}")
-
-# 🤖 Real AI / Technical Indicator Signal Function
-def get_ai_signal(symbol):
-    # 1. Fetch live market candles
-    df = fetch_ohlcv_data(symbol, timeframe='15m', limit=100)
-    
-    # 2. Calculate Indicators / ML Model Prediction
-    rsi = calculate_rsi(df)
-    ema_fast = calculate_ema(df, 9)
-    ema_slow = calculate_ema(df, 21)
-    
-    # 3. Determine Signal & Confidence
-    if rsi.iloc[-1] < 30 and ema_fast.iloc[-1] > ema_slow.iloc[-1]:
-        signal = "BUY"
-        confidence = 0.65  # 65% Confidence
-    elif rsi.iloc[-1] > 70 and ema_fast.iloc[-1] < ema_slow.iloc[-1]:
-        signal = "SELL"
-        confidence = 0.65
-    else:
-        signal = "HOLD"
-        confidence = 0.40  # Low confidence
-        
-    return signal, confidence
-
- 
-def process_symbol(symbol='SOL/USDT'):
-    print(f"Checking AI signal for {symbol}...")
-    
-    # ১. এআই মডেল থেকে সিগন্যাল ও কনফিডেন্স নেওয়া 
-    # (আপনার প্রজেক্টের নিয়ম অনুযায়ী train_and_predict বা get_ai_signal ফাংশন ব্যবহার করবেন)
-    # নিচে উদাহরণ হিসেবে আপনার মডেলের আউটপুট ধরা হলো:
-    prediction, confidence, _, _ = train_and_predict(symbol, timeframe='15m')
-    
-    # সিগন্যাল সাইড নির্ধারণ (ধরুন prediction 1 হলে BUY, অন্যথায় SELL)
-    # prediction যদি Pandas Series বা Array হয়, তবে তার শেষ বা একক মানটি নেওয়ার জন্য:
-    pred_val = prediction.iloc[-1] if hasattr(prediction, 'iloc') else prediction
-
-    signal_side = 'BUY' if pred_val == 1 else 'SELL'
-    
-    # ২. কনফিডেন্স ৬০% বা তার বেশি হলে তবেই রিয়েল ট্রেড এক্সিকিউট করবে
-    if confidence >= 0.35:
-        print(f"✅ AI Signal Confirmed: {signal_side} with {confidence*100:.2f}% confidence.")
-        
-        # বর্তমান মার্কেট প্রাইস ফেচ করা
-        ticker = exchange.fetch_ticker(symbol)
-        current_price = ticker['last']
-        
-        # ৩. আপনার ১০ ডলার ক্যাপিটাল ও ১০x লেভারেজের জন্য কন্ট্রাক্ট অ্যামাউন্ট 
-        # (SOL এর ক্ষেত্রে যেমন 0.1 বা আপনার নির্ধারিত সেফ অ্যামাউন্ট)
-        amount = 0.1 
-        
-        print(f"🚀 Executing live trade on Gate.io with 10x Isolated Margin...")
-        
-        # ৪. মার্জিন, লেভারেজ এবং এসএল/টিপি সহ অর্ডার প্লেস করার ফাংশন কল
-        order_result = place_futures_order_with_sl_tp(
-            exchange=exchange, 
-            symbol=symbol, 
-            side=signal_side, 
-            amount=amount, 
-            entry_price=current_price, 
-            sl_percent=0.015,  # ১.৫% হার্ড স্টপ-লস
-            tp_percent=0.03    # ৩% টেক-প্রফিট
-        )
-        
-        if order_result and 'id' in order_result:
-            print(f"🎯 Order successfully placed and secured with SL/TP! ID: {order_result.get('id')}\n")
-        else:
-            print(f"❌ Failed to execute order on exchange.\n")
-            
-    else:
-        print(f"⚠️ Signal confidence too low ({confidence*100:.2f}% < 35%). Skipping trade in this cycle.\n")
-
-def set_margin_and_leverage(exchange, symbol, leverage=10):
-    try:
-        # ১. মার্জিন মোড 'isolated' সেট করা (Gate.io ফিউচারের জন্য)
-        # নোট: CCXT-এ অনেক সময় এটি পজিশন ওপেন করার সময় বা আলাদা এন্ডপয়েন্টে হ্যান্ডেল করতে হয়
-        try:
-            exchange.set_margin_mode('isolated', symbol)
-            print(f"Margin mode set to ISOLATED for {symbol}")
-        except Exception as e:
-            print(f"Note on margin mode (might already be isolated): {e}")
-
-        # ২. লেভারেজ সেট করা
-        exchange.set_leverage(leverage, symbol)
-        print(f"Leverage successfully set to {leverage}x for {symbol}")
-        
-    except Exception as e:
-        print(f"Error in setting margin/leverage: {e}")
-
-def place_futures_order_with_sl_tp(exchange, symbol, side, amount, entry_price, sl_percent=0.015, tp_percent=0.03):
-    try:
-        # Gate.io ফিউচার্সে (swap) side সবসময় লোয়ারকেস 'buy' অথবা 'sell' হতে হবে
-        order_side = side.lower()
-        
-        # অ্যামাউন্ট নিশ্চিতভাবে ফ্লোট সংখ্যা হতে হবে
-        qty = float(amount)
-
-        # Gate.io ফিউচার্স অর্ডারের সঠিক প্যারামিটার
-        params = {
-            'reduce_only': False,
-        }
-
-        # CCXT দিয়ে ফিউচার্স মার্কেট অর্ডার প্লেস করা
-        order = exchange.create_order(
-            symbol=symbol,
-            type='market',
-            side=order_side,
-            amount=qty,
-            price=None,
-            params=params
-        )
-        
-        print("✅ Futures Order Placed Successfully:", order)
-        return order
-
-    except Exception as e:
-        print(f"❌ Failed to place futures order: {e}")
+        print(f"❌ Request Exception: {e}", flush=True)
         return None
 
+# ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
-    print("Bot main loop started successfully and running 24/7...", flush=True)
+    print("🚀 SOL-Focused AI Trading Bot [24/7 Production Mode Active]...", flush=True)
     
     while True:
         try:
             symbol = 'SOL/USDT'
             
-            # ১. চেক করুন ইতিমধ্যে কোনো ওপেন পজিশন আছে কি না
-            if check_existing_position(symbol):
+        # ১. পজিশন চেক করা (True মানে অলরেডি পজিশন আছে)
+            is_active, _ = check_existing_position(symbol)
+            if is_active:
                 print(f"⏳ Position already open for {symbol}. Skipping new trade to protect margin.", flush=True)
                 time.sleep(60)
                 continue
             
-            # ২. পজিশন না থাকলে তবেই এন্ট্রি বা সিগন্যাল চেক করবে
-            print(f"[{datetime.now()}] No open position. Running AI prediction and executing trade...", flush=True)
-            execute_futures_trade(symbol=symbol, signal_side='BULLISH', contracts=1, leverage=10)
+            # ২. পজিশন না থাকলে এআই প্রেডিকশন রান করা
+            print(f"[{datetime.now()}] No open position. Running AI prediction...", flush=True)
+            prediction, confidence = train_and_predict(symbol, timeframe='15m')
+            
+            signal_side = 'buy' if prediction == 1 else 'sell'
+            
+            # ৩. কনফিডেন্স যাচাই করে ট্রেড এক্সিকিউট করা
+            if confidence >= 55.0: # ৩৫% এর বদলে প্রফেশনাল লেভেলে ৫৫% রাখা হলো
+                print(f"✅ AI Signal Confirmed: {signal_side.upper()} with {confidence:.2f}% confidence.")
+                send_gate_testnet_order(symbol=symbol, side=signal_side, contracts=1)
+            else:
+                print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.")
             
             time.sleep(60)
             
@@ -564,25 +230,6 @@ def run_trading_bot():
             print(f"Error in main loop: {e}", flush=True)
             time.sleep(15)
 
-# ==================== MAIN EXECUTION ====================
+# ==================== MAIN ENTRY POINT ====================
 if __name__ == "__main__":
     run_trading_bot()
-
-def job():
-    print(f"\n⏰ [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Running SOL market cycle (20 SOL, 50x)...")
-    monitor_and_close_position('SOL/USDT', target_profit_usd=1.0)
-    process_symbol('SOL/USDT')
-
-# ================= SCHEDULE & MAIN LOOP =================
-if __name__ == "__main__":
-    print("🚀 SOL-Focused AI Trading Bot [AI + Timed Cycle Mode Active]...")
-    
-    # প্রতি ৫ মিনিট পরপর এআই মডেল চেক করবে এবং সিগন্যাল পেলে ট্রেড সাইকেল রান করবে
-    schedule.every(5).minutes.do(lambda: process_symbol('SOL/USDT'))
-    
-    # বট স্টার্ট হওয়ার সাথে সাথে প্রথমবার টেস্ট করার জন্য:
-    process_symbol('SOL/USDT')
-
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
