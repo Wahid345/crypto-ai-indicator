@@ -311,24 +311,22 @@ def check_existing_position(symbol):
         'SIGN': signature
     }
     
-    try:
+   try:
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            # পজিশন সাইজ লং ট্রেডের জন্য পজিটিভ (+), শর্ট ট্রেডের জন্য নেগেটিভ (-) হতে পারে
             size = int(data.get('size', 0))
             
-            # সাইজ ০ না হলেই (অর্থাৎ পজিশন লং বা শর্ট যাই হোক) True রিটার্ন করবে
             if size != 0:
                 print(f"🔍 Existing position detected! Size: {size}", flush=True)
                 return True
         else:
             print(f"⚠️ Position Check API Error [{response.status_code}]: {response.text}", flush=True)
+            return True  # এপিআই রেসপন্স খারাপ থাকলে সেফটির জন্য ট্রেড স্কিপ করবে
             
     except Exception as e:
         print(f"⚠️ Error checking position: {e}", flush=True)
-    
-    return False
+        return True  # নেটওয়ার্ক এরর হলে সেফটির জন্য নতুন ট্রেড নেওয়া বন্ধ রাখবে
 
 # ================= DIRECT GATE.IO CLOSE API =================
 def close_gate_position_direct(symbol, size, signal_side='buy'):
