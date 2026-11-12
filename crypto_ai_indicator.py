@@ -237,16 +237,19 @@ def process_symbol(symbol='SOL/USDT'):
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
 
-        
+         
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
-    print("🚀 SOL-Focused AI Trading Bot [10s Live PnL, TP & SL Monitor Active]...", flush=True)
+    print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
+    symbol = 'SOL/USDT'
+    
+    set_isolated_leverage(symbol, leverage=5)
     
     while True:
         try:
-            symbol = 'SOL/USDT'
+            # শিডিউল চেক করা (প্রতিদিন নির্দিষ্ট সময়ের কাজ পরিচালনা করার জন্য)
+            schedule.run_pending()
             
-            # ১. চেক করুন কোনো ওপেন পজিশন আছে কি না
             is_active, pos_data = check_existing_position(symbol)
             
             if is_active:
@@ -257,39 +260,35 @@ def run_trading_bot():
                 
                 print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
                 
-                # 🎯 সেটিংস: টেক-প্রফিট এবং স্টপ-লস লিমিট
-                target_profit_usd = 1.0   # $1 প্রফিট হলে ক্লোজ
-                max_loss_usd = -0.50      # -$0.50 লস হলে স্টপ-লস হিট করবে
-                
+                target_profit_usd = 1.0   
+                max_loss_usd = -0.50      
                 close_side = 'sell' if size > 0 else 'buy'
                 
-                # ক. টেক-প্রফিট চেক
                 if unrealised_pnl >= target_profit_usd:
                     print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position...")
-                    success = send_gate_testnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
+                    success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
                     if success:
+                        # তাত্ক্ষণিক প্রফিট অ্যালার্ট টেলিগ্রামে পাঠানো (যা ইতিমধ্যে কোডে আছে)
                         send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
                 
-                # খ. স্টপ-লস চেক
                 elif unrealised_pnl <= max_loss_usd:
-                    print(f"🛑 Stop-Loss triggered at ${unrealised_pnl:.2f}! Closing position to protect capital...")
-                    success = send_gate_testnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
+                    print(f"🛑 Stop-Loss triggered at ${unrealised_pnl:.2f}! Closing position...")
+                    success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
                     if success:
                         send_telegram_alert(f"🛑 *Stop-Loss Triggered & Closed!*\nSymbol: `{symbol}`\nLoss: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
                 
                 time.sleep(10)
                 continue
             
-            # ২. পজিশন খালি থাকলে process_symbol রান করা (যেখানে এআই এবং ট্রেন্ড ফিল্টার দুটোই কাজ করবে)
             print(f"[{datetime.now()}] No open position. Running AI & Trend Filter...", flush=True)
             process_symbol(symbol)
             
-            time.sleep(10)
+            time.sleep(60)
             
         except Exception as e:
             print(f"Error in main loop: {e}", flush=True)
             time.sleep(10)
-
+            
 # ==================== MAIN ENTRY POINT ====================
 if __name__ == "__main__":
     run_trading_bot()
