@@ -196,19 +196,58 @@ def send_gate_testnet_order(symbol, side, contracts):
         print(f"❌ Request Exception: {e}", flush=True)
         return None
 
+def process_symbol(symbol='SOL/USDT'):
+    print(f"Checking AI signal and trend for {symbol}...", flush=True)
+    
+    try:
+        # ১. ডেটা ফেচ এবং ট্রেন্ড ফিল্টার সহ ফিচার প্রস্তুত করা
+        df_raw = fetch_crypto_data(symbol, timeframe='15m', limit=500)
+        df = prepare_features(df_raw)
+        
+        # ট্রেন্ড ফিল্টার কনফার্মেশনের জন্য ইএমএ চেক
+        current_close = df['close'].iloc[-1]
+        fast_ema = df['EMA_20'].iloc[-1]
+        slow_ema = df['EMA_50'].iloc[-1]
+        
+        # বাজার বুলিশ না বেয়ারিশ তা নির্ধারণ
+        if fast_ema > slow_ema and current_close > fast_ema:
+            market_trend = "BULLISH"
+        elif fast_ema < slow_ema and current_close < fast_ema:
+            market_trend = "BEARISH"
+        else:
+            market_trend = "SIDEWAYS"
+            
+        print(f"📊 Market Trend Detected: {market_trend} (Fast EMA: {fast_ema:.2f}, Slow EMA: {slow_ema:.2f})", flush=True)
+        
+        # ২. এআই মডেল থেকে প্রেডিকশন ও কনফিডেন্স নেওয়া
+        prediction, confidence = train_and_predict(symbol, timeframe='15m')
+        signal_side = 'buy' if prediction == 1 else 'sell'
+        
+        # ৩. ট্রেন্ড এবং কনফিডেন্স ম্যাচ করলে তবেই ট্রেড এক্সিকিউট করা
+        if confidence >= 55.0:
+            # ট্রেন্ড ফিল্টার রুল: বুলিশ ট্রেন্ড হলে শুধু BUY অথবা বেয়ারিশ ট্রেন্ড হলে শুধু SELL এলাউ করবে
+            if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
+                print(f"✅ AI Signal Confirmed & Aligned with Trend: {signal_side.upper()} with {confidence:.2f}% confidence.")
+                send_gate_testnet_order(symbol=symbol, side=signal_side, contracts=1)
+            else:
+                print(f"⚠️ Signal ({signal_side.upper()}) conflicts with market trend ({market_trend}). Skipping trade.")
+        else:
+            print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.")
+            
+    except Exception as e:
+        print(f"❌ Error in process_symbol: {e}", flush=True)
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
-    print("🚀 SOL-Focused AI Trading Bot [10s Live PnL & Target Monitor Active]...", flush=True)
+    print("🚀 SOL-Focused AI Trading Bot [10s Live PnL, TP & SL Monitor Active]...", flush=True)
     
     while True:
         try:
             symbol = 'SOL/USDT'
             
-            # ১. প্রথমে চেক করুন কোনো ওপেন পজিশন আছে কি না
+            # ১. চেক করুন কোনো ওপেন পজিশন আছে কি না
             is_active, pos_data = check_existing_position(symbol)
             
             if is_active:
-                # পজিশন ওপেন থাকলে লাইভ পিএনএল এবং প্রাইস চেক করবে
                 pos_item = pos_data[0] if isinstance(pos_data, list) and len(pos_data) > 0 else pos_data
                 unrealised_pnl = float(pos_item.get('unrealised_pnl', 0))
                 size = float(pos_item.get('size', 0))
@@ -216,45 +255,46 @@ def run_trading_bot():
                 
                 print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
                 
-                # 🎯 টেক-প্রফিট টার্গেট (যেমন: $1.0 বা আপনার পছন্দমতো অ্যামাউন্ট)
-                target_profit_usd = 1.0 
+                # 🎯 সেটিংস: টেক-প্রফিট এবং স্টপ-লস লিমিট
+                target_profit_usd = 1.0   # $1 প্রফিট হলে ক্লোজ
+                max_loss_usd = -0.50      # -$0.50 (বা আপনার রিস্ক লিমিট অনুযায়ী) লস হলে স্টপ-লস হিট করবে
                 
+                close_side = 'sell' if size > 0 else 'buy'
+                
+                # ক. টেক-প্রফিট চেক
                 if unrealised_pnl >= target_profit_usd:
-                    print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position immediately...")
-                    
-                    # পজিশনের এন্ট্রি সাইড অনুযায়ী ক্লোজ অর্ডার পাঠানো
-                    # (size পজিটিভ হলে 'sell' এবং নেগেটিভ হলে 'buy' দিয়ে ক্লোজ করতে হবে)
-                    close_side = 'sell' if size > 0 else 'buy'
+                    print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position...")
                     success = send_gate_testnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
-                    
                     if success:
-                        print("✅ Position successfully closed at target profit!")
                         send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
                 
-                # পজিশন থাকা অবস্থায় প্রতি ১০ সেকেন্ড পর পর লুপটি ঘুরবে এবং পিএনএল চেক করবে
+                # খ. স্টপ-লস চেক (নতুন যুক্ত হলো)
+                elif unrealised_pnl <= max_loss_usd:
+                    print(f"🛑 Stop-Loss triggered at ${unrealised_pnl:.2f}! Closing position to protect capital...")
+                    success = send_gate_testnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
+                    if success:
+                        send_telegram_alert(f"🛑 *Stop-Loss Triggered & Closed!*\nSymbol: `{symbol}`\nLoss: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
+                
                 time.sleep(10)
                 continue
             
-            # ২. পজিশন খালি থাকলে এআই প্রেডিকশন রান করে নতুন এন্ট্রি খুঁজবে
+            # ২. পজিশন খালি থাকলে এআই প্রেডিকশন রান করা
             print(f"[{datetime.now()}] No open position. Running AI prediction...", flush=True)
             prediction, confidence = train_and_predict(symbol, timeframe='15m')
             
             signal_side = 'buy' if prediction == 1 else 'sell'
             
-            # কনফিডেন্স ৫৫% বা তার বেশি হলে ট্রেড নেবে
             if confidence >= 55.0:
                 print(f"✅ AI Signal Confirmed: {signal_side.upper()} with {confidence:.2f}% confidence.")
                 send_gate_testnet_order(symbol=symbol, side=signal_side, contracts=1)
             else:
                 print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.")
             
-            # প্রতি ১০ সেকেন্ড পর পর পরবর্তী সাইকেল চেক করবে
             time.sleep(10)
             
         except Exception as e:
             print(f"Error in main loop: {e}", flush=True)
             time.sleep(10)
-            
 # ==================== MAIN ENTRY POINT ====================
 if __name__ == "__main__":
     run_trading_bot()
