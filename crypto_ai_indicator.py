@@ -198,38 +198,63 @@ def send_gate_testnet_order(symbol, side, contracts):
 
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
-    print("🚀 SOL-Focused AI Trading Bot [24/7 Production Mode Active]...", flush=True)
+    print("🚀 SOL-Focused AI Trading Bot [10s Live PnL & Target Monitor Active]...", flush=True)
     
     while True:
         try:
             symbol = 'SOL/USDT'
             
-        # ১. পজিশন চেক করা (True মানে অলরেডি পজিশন আছে)
-            is_active, _ = check_existing_position(symbol)
+            # ১. প্রথমে চেক করুন কোনো ওপেন পজিশন আছে কি না
+            is_active, pos_data = check_existing_position(symbol)
+            
             if is_active:
-                print(f"⏳ Position already open for {symbol}. Skipping new trade to protect margin.", flush=True)
-                time.sleep(60)
+                # পজিশন ওপেন থাকলে লাইভ পিএনএল এবং প্রাইস চেক করবে
+                pos_item = pos_data[0] if isinstance(pos_data, list) and len(pos_data) > 0 else pos_data
+                unrealised_pnl = float(pos_item.get('unrealised_pnl', 0))
+                size = float(pos_item.get('size', 0))
+                mark_price = float(pos_item.get('mark_price', 0))
+                
+                print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
+                
+                # 🎯 টেক-প্রফিট টার্গেট (যেমন: $1.0 বা আপনার পছন্দমতো অ্যামাউন্ট)
+                target_profit_usd = 1.0 
+                
+                if unrealised_pnl >= target_profit_usd:
+                    print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position immediately...")
+                    
+                    # পজিশনের এন্ট্রি সাইড অনুযায়ী ক্লোজ অর্ডার পাঠানো
+                    # (size পজিটিভ হলে 'sell' এবং নেগেটিভ হলে 'buy' দিয়ে ক্লোজ করতে হবে)
+                    close_side = 'sell' if size > 0 else 'buy'
+                    success = send_gate_testnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
+                    
+                    if success:
+                        print("✅ Position successfully closed at target profit!")
+                        send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
+                
+                # পজিশন থাকা অবস্থায় প্রতি ১০ সেকেন্ড পর পর লুপটি ঘুরবে এবং পিএনএল চেক করবে
+                time.sleep(10)
                 continue
             
-            # ২. পজিশন না থাকলে এআই প্রেডিকশন রান করা
+            # ২. পজিশন খালি থাকলে এআই প্রেডিকশন রান করে নতুন এন্ট্রি খুঁজবে
             print(f"[{datetime.now()}] No open position. Running AI prediction...", flush=True)
             prediction, confidence = train_and_predict(symbol, timeframe='15m')
             
             signal_side = 'buy' if prediction == 1 else 'sell'
             
-            # ৩. কনফিডেন্স যাচাই করে ট্রেড এক্সিকিউট করা
-            if confidence >= 55.0: # ৩৫% এর বদলে প্রফেশনাল লেভেলে ৫৫% রাখা হলো
+            # কনফিডেন্স ৫৫% বা তার বেশি হলে ট্রেড নেবে
+            if confidence >= 55.0:
                 print(f"✅ AI Signal Confirmed: {signal_side.upper()} with {confidence:.2f}% confidence.")
                 send_gate_testnet_order(symbol=symbol, side=signal_side, contracts=1)
             else:
                 print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.")
             
-            time.sleep(60)
+            # প্রতি ১০ সেকেন্ড পর পর পরবর্তী সাইকেল চেক করবে
+            time.sleep(10)
             
         except Exception as e:
             print(f"Error in main loop: {e}", flush=True)
-            time.sleep(15)
-
+            time.sleep(10)
+            
 # ==================== MAIN ENTRY POINT ====================
 if __name__ == "__main__":
     run_trading_bot()
