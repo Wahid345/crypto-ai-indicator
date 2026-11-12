@@ -236,6 +236,8 @@ def process_symbol(symbol='SOL/USDT'):
             
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
+
+        
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Trading Bot [10s Live PnL, TP & SL Monitor Active]...", flush=True)
@@ -257,7 +259,7 @@ def run_trading_bot():
                 
                 # 🎯 সেটিংস: টেক-প্রফিট এবং স্টপ-লস লিমিট
                 target_profit_usd = 1.0   # $1 প্রফিট হলে ক্লোজ
-                max_loss_usd = -0.50      # -$0.50 (বা আপনার রিস্ক লিমিট অনুযায়ী) লস হলে স্টপ-লস হিট করবে
+                max_loss_usd = -0.50      # -$0.50 লস হলে স্টপ-লস হিট করবে
                 
                 close_side = 'sell' if size > 0 else 'buy'
                 
@@ -268,7 +270,7 @@ def run_trading_bot():
                     if success:
                         send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
                 
-                # খ. স্টপ-লস চেক (নতুন যুক্ত হলো)
+                # খ. স্টপ-লস চেক
                 elif unrealised_pnl <= max_loss_usd:
                     print(f"🛑 Stop-Loss triggered at ${unrealised_pnl:.2f}! Closing position to protect capital...")
                     success = send_gate_testnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
@@ -278,23 +280,16 @@ def run_trading_bot():
                 time.sleep(10)
                 continue
             
-            # ২. পজিশন খালি থাকলে এআই প্রেডিকশন রান করা
-            print(f"[{datetime.now()}] No open position. Running AI prediction...", flush=True)
-            prediction, confidence = train_and_predict(symbol, timeframe='15m')
-            
-            signal_side = 'buy' if prediction == 1 else 'sell'
-            
-            if confidence >= 55.0:
-                print(f"✅ AI Signal Confirmed: {signal_side.upper()} with {confidence:.2f}% confidence.")
-                send_gate_testnet_order(symbol=symbol, side=signal_side, contracts=1)
-            else:
-                print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.")
+            # ২. পজিশন খালি থাকলে process_symbol রান করা (যেখানে এআই এবং ট্রেন্ড ফিল্টার দুটোই কাজ করবে)
+            print(f"[{datetime.now()}] No open position. Running AI & Trend Filter...", flush=True)
+            process_symbol(symbol)
             
             time.sleep(10)
             
         except Exception as e:
             print(f"Error in main loop: {e}", flush=True)
             time.sleep(10)
+
 # ==================== MAIN ENTRY POINT ====================
 if __name__ == "__main__":
     run_trading_bot()
