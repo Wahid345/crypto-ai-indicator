@@ -274,7 +274,7 @@ def process_symbol(symbol='SOL/USDT'):
             STOP_LOSS_TARGET = -0.30   
             
             if unrealized_pnl >= TAKE_PROFIT_TARGET:
-                print(✨ Target Profit Reached ({unrealized_pnl:.4f} USDT >= ${TAKE_PROFIT_TARGET}). Closing position...", flush=True)
+                print(f"✨ Target Profit Reached ({unrealized_pnl:.4f} USDT >= ${TAKE_PROFIT_TARGET}). Closing position...", flush=True)
                 close_side = 'sell' if current_side == 'buy' else 'buy'
                 send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
                 return
