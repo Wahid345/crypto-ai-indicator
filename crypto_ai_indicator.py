@@ -1,5 +1,4 @@
 import os
-import csv
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import requests
@@ -9,11 +8,13 @@ import numpy as np
 import ta
 import time
 import schedule
-import hashlib  
+import hashlib 
 import hmac     
 import json     
 from datetime import datetime
 from xgboost import XGBClassifier
+from flask import Flask
+
 
 # ==================== CONFIGURATION ====================
 API_KEY = os.environ.get('GATE_API_KEY', 'a9c34f7d3ce1bdfb7d80ae11e8d69f73')
@@ -23,11 +24,8 @@ BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '9052673855:AAGoX5xAiwah6EJaJHx
 SIGNAL_CHAT_ID = '5461610444'   # Signal Group
 TRADE_CHAT_ID = '-5394519129'   # Profit Update Group
 
-# মেইননেট হোস্ট ও প্রিফিক্স
 GATE_HOST = "https://api.gateio.ws"
 GATE_PREFIX = "/api/v4"
-
-CSV_FILE = "trade_history.csv"
 SYMBOLS = ['SOL/USDT']
 
 exchange_config = {
@@ -42,19 +40,30 @@ exchange_config = {
 exchange = ccxt.gate(exchange_config)
 exchange.load_markets()
 
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "SOL AI Trading Bot is Running 24/7", 200
+
 def self_ping_loop():
-    # অবশ্যই আপনার রেন্ডারের লাইভ পাবলিক URL হতে হবে
     url = "https://crypto-ai-indicator.onrender.com"  
     while True:
         try:
-            # প্রতি ৫ মিনিট (৩০০ সেকেন্ড) পর পর রিকোয়েস্ট পাঠাবে
             time.sleep(300)
             res = requests.get(url, timeout=10)
             print(f"🔄 Self-ping sent successfully. Status: {res.status_code}", flush=True)
         except Exception as e:
             print(f"⚠️ Self-ping error: {e}", flush=True)
 
-# Render Web Service-এর জন্য ফেক পোর্ট সার্ভার
+def send_daily_profit_summary():
+    try:
+        print("📊 Generating daily profit summary...", flush=True)
+    except Exception as e:
+        print(f"❌ Error in daily summary: {e}", flush=True)
+
+schedule.every().day.at("23:58").do(send_daily_profit_summary)
+
 def start_dummy_server():
     try:
         port = int(os.environ.get("PORT", 10000))
@@ -63,8 +72,6 @@ def start_dummy_server():
         server.serve_forever()
     except Exception as e:
         print(f"❌ Dummy server bind error: {e}", flush=True)
-
-threading.Thread(target=start_dummy_server, daemon=True).start()
 
 def send_telegram_alert(message, chat_id):
     if not BOT_TOKEN or not chat_id:
@@ -111,7 +118,6 @@ def train_and_predict(df):
     X = df[features]
     y = df['Target']
     
-    # সর্বশেষ ক্যান্ডেল বাদে সব ডেটায় ট্রেনিং (সর্বোচ্চ সাম্প্রতিক প্যাটার্ন ধরার জন্য)
     X_train, y_train = X.iloc[:-1], y.iloc[:-1]
     
     model = XGBClassifier(n_estimators=150, learning_rate=0.05, max_depth=4, random_state=42, eval_metric='logloss')
@@ -125,9 +131,8 @@ def train_and_predict(df):
     return prediction, confidence
 
 # ==================== LEVERAGE & MARGIN SETUP ====================
-def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
+def set_isolated_leverage(symbol='SOL/USDT', leverage=10):
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}/leverage"
-    # cross_leverage_limit বাদ দিয়ে শুধু leverage পাঠানো হচ্ছে
     url = GATE_HOST + GATE_PREFIX + endpoint + f"?leverage={leverage}"
     
     timestamp = str(int(time.time()))
@@ -151,9 +156,7 @@ def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
     except Exception as e:
         print(f"⚠️ Leverage setting error: {e}", flush=True)
 
-
 # ==================== POSITION CHECK FUNCTION ====================
-
 def check_existing_position(symbol):
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
     url = GATE_HOST + GATE_PREFIX + endpoint
@@ -234,100 +237,64 @@ def send_gate_mainnet_order(symbol, side, contracts):
         return None
 
 def process_symbol(symbol='SOL/USDT'):
-    print(f"Checking AI signal and trend for {symbol}...", flush=True)
+    print(f"Checking AI signal for {symbol} (Trend Filter Removed)...", flush=True)
     
     try:
-        # ১. বর্তমান পজিশন ও PnL চেক করা
         has_position, pos_info = check_existing_position(symbol)
         
-        # বাজার ও এআই সিগন্যাল অ্যানালাইসিস
         df_raw = fetch_crypto_data(symbol, timeframe='15m', limit=500)
         df = prepare_features(df_raw)
-        
-        current_close = df['close'].iloc[-1]
-        fast_ema = df['EMA_20'].iloc[-1]
-        slow_ema = df['EMA_50'].iloc[-1]
-        
-        if fast_ema > slow_ema and current_close > fast_ema:
-            market_trend = "BULLISH"
-        elif fast_ema < slow_ema and current_close < fast_ema:
-            market_trend = "BEARISH"
-        else:
-            market_trend = "SIDEWAYS"
-            
-        print(f"📊 Market Trend Detected: {market_trend} (Fast EMA: {fast_ema:.2f}, Slow EMA: {slow_ema:.2f})", flush=True)
         
         prediction, confidence = train_and_predict(df)
         signal_side = 'buy' if prediction == 1 else 'sell'
         
-        # ২. পজিশন থাকলে TP/SL এবং Auto-Reverse চেক করা
         if has_position:
             pos_size = float(pos_info.get('size', 0))
             current_side = 'buy' if pos_size > 0 else 'sell'
             
-            # গেট.আইও থেকে আনরিয়ালাইজড পিএনএল (লাভ বা লস) নেওয়া
             unrealized_pnl = float(pos_info.get('unrealized_pnl', 0))
             print(f"📈 Active Position ({current_side.upper()}) PnL: {unrealized_pnl:.4f} USDT", flush=True)
             
-            # টেক-প্রফিট (যেমন: +০.৫০ USDT) অথবা স্টপ-লস (যেমন: -০.৩০ USDT) টার্গেট
             TAKE_PROFIT_TARGET = 0.50  
             STOP_LOSS_TARGET = -0.30   
             
             if unrealized_pnl >= TAKE_PROFIT_TARGET:
-                print(f"✨ Target Profit Reached ({unrealized_pnl:.4f} USDT >= ${TAKE_PROFIT_TARGET}). Closing position...", flush=True)
+                print(f"✨ Target Profit Reached ({unrealized_pnl:.4f} USDT). Closing position...", flush=True)
                 close_side = 'sell' if current_side == 'buy' else 'buy'
                 send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
                 return
                 
             elif unrealized_pnl <= STOP_LOSS_TARGET:
-                print(f"🛑 Stop Loss Triggered ({unrealized_pnl:.4f} USDT <= ${STOP_LOSS_TARGET}). Cutting loss...", flush=True)
+                print(f"🛑 Stop Loss Triggered ({unrealized_pnl:.4f} USDT). Cutting loss...", flush=True)
                 close_side = 'sell' if current_side == 'buy' else 'buy'
                 send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
                 return
 
-            # আগের অটো-রিভার্স লজিক (সিগন্যাল উল্টো হলে রিভার্স করা)
             if current_side != signal_side and confidence >= 55.0:
-                print(f"🔄 Market Reversed! Closing & Reversing to {signal_side.upper()}...", flush=True)
+                print(f"🔄 Signal Reversed! Closing & Reversing to {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
                 close_side = 'sell' if current_side == 'buy' else 'buy'
                 send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
                 time.sleep(2)
-                
-                if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
-                    send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
-            else:
-                print(f"🔒 Holding position. PnL target not met yet.", flush=True)
-            return
-
-        # ৩. কোনো পজিশন না থাকলে নতুন ট্রেড নেওয়া
-        if confidence >= 55.0:
-            if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
-                print(f"✅ Opening New Trade: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
                 send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
             else:
-                print(f"⚠️ Signal conflicts with trend ({market_trend}). Skipping.", flush=True)
+                print(f"🔒 Holding position. Signal matches or confidence too low.", flush=True)
+            return
+
+        if confidence >= 55.0:
+            print(f"✅ Executing AI Signal: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
+            send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
         else:
-            print(f"⚠️ Confidence too low ({confidence:.2f}%). Skipping.", flush=True)
+            print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.", flush=True)
             
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
-# প্রতিদিন রাত ১১:৫৮ মিনিটে ডেইলি সামারি পাঠানোর শিডিউল
-
-def send_daily_profit_summary():
-    try:
-        print("📊 Generating daily profit summary...", flush=True)
-        # এখানে চাইলে টেলিগ্রাম বা অন্যান্য মাধ্যমে সামারি পাঠানোর কোড যুক্ত করতে পারেন
-    except Exception as e:
-        print(f"❌ Error in daily summary: {e}", flush=True)
-
-# ফাংশন ডিক্লেয়ার করার পরে এখন এটি শিডিউল করুন
-schedule.every().day.at("23:58").do(send_daily_profit_summary)
 
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
     symbol = 'SOL/USDT'
     
-    set_isolated_leverage(symbol, leverage=5)
+    set_isolated_leverage(symbol, leverage=10)
     
     while True:
         try:
@@ -344,7 +311,7 @@ def run_trading_bot():
                 print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
                 
                 target_profit_usd = 0.50   
-                max_loss_usd = -0.30      
+                max_loss_usd = -0.30       
                 close_side = 'sell' if size > 0 else 'buy'
                 
                 if unrealised_pnl >= target_profit_usd:
@@ -362,7 +329,7 @@ def run_trading_bot():
                 time.sleep(5)
                 continue
             
-            print(f"[{datetime.now()}] No open position. Running AI & Trend Filter...", flush=True)
+            print(f"[{datetime.now()}] No open position. Running AI Signal Check...", flush=True)
             process_symbol(symbol)
             
             time.sleep(60)
@@ -371,6 +338,7 @@ def run_trading_bot():
             print(f"Error in main loop: {e}", flush=True)
             time.sleep(10)
             
-# ==================== MAIN ENTRY POINT ====================
 if __name__ == "__main__":
+    threading.Thread(target=start_dummy_server, daemon=True).start()
+    threading.Thread(target=self_ping_loop, daemon=True).start()
     run_trading_bot()
