@@ -237,10 +237,10 @@ def process_symbol(symbol='SOL/USDT'):
     print(f"Checking AI signal and trend for {symbol}...", flush=True)
     
     try:
-        # ১. বর্তমান পজিশন চেক করা
+        # ১. বর্তমান পজিশন ও PnL চেক করা
         has_position, pos_info = check_existing_position(symbol)
         
-        # ২. বাজার ও এআই সিগন্যাল অ্যানালাইসিস ফেজ
+        # বাজার ও এআই সিগন্যাল অ্যানালাইসিস
         df_raw = fetch_crypto_data(symbol, timeframe='15m', limit=500)
         df = prepare_features(df_raw)
         
@@ -260,45 +260,56 @@ def process_symbol(symbol='SOL/USDT'):
         prediction, confidence = train_and_predict(df)
         signal_side = 'buy' if prediction == 1 else 'sell'
         
-        # ৩. অটো-রিভার্স বা পজিশন ম্যানেজমেন্ট লজিক
+        # ২. পজিশন থাকলে TP/SL এবং Auto-Reverse চেক করা
         if has_position:
-            # গেট.আইও ফিউচার্সে পজিশন সাইজ পজেটিভ হলে LONG, নেগেটিভ হলে SHORT
             pos_size = float(pos_info.get('size', 0))
             current_side = 'buy' if pos_size > 0 else 'sell'
             
-            # যদি বর্তমান পজিশনের বিপরীত সিগন্যাল আসে এবং কনফিডেন্স ১০০% বা নির্দিষ্ট লেভেলে থাকে
-            if current_side != signal_side and confidence >= 55.0:
-                print(f"🔄 Market Reversed! Current position is {current_side.upper()}, but new signal is {signal_side.upper()}. Closing & Reversing...", flush=True)
-                
-                # প্রথমে বর্তমান পজিশন ক্লোজ করার জন্য বিপরীত অর্ডারের সাইজ পাঠাতে হবে 
-                # (অথবা ক্লোজ এপিআই কল করা যেতে পারে)
+            # গেট.আইও থেকে আনরিয়ালাইজড পিএনএল (লাভ বা লস) নেওয়া
+            unrealized_pnl = float(pos_info.get('unrealized_pnl', 0))
+            print(f"📈 Active Position ({current_side.upper()}) PnL: {unrealized_pnl:.4f} USDT", flush=True)
+            
+            # টেক-প্রফিট (যেমন: +০.৫০ USDT) অথবা স্টপ-লস (যেমন: -০.৩০ USDT) টার্গেট
+            TAKE_PROFIT_TARGET = 0.50  
+            STOP_LOSS_TARGET = -0.30   
+            
+            if unrealized_pnl >= TAKE_PROFIT_TARGET:
+                print(✨ Target Profit Reached ({unrealized_pnl:.4f} USDT >= ${TAKE_PROFIT_TARGET}). Closing position...", flush=True)
                 close_side = 'sell' if current_side == 'buy' else 'buy'
                 send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
-                time.sleep(2) # অর্ডার এক্সিকিউটের জন্য সামান্য বিরতি
+                return
                 
-                # এবার নতুন রিভার্স ট্রেড ওপেন করা
+            elif unrealized_pnl <= STOP_LOSS_TARGET:
+                print(f"🛑 Stop Loss Triggered ({unrealized_pnl:.4f} USDT <= ${STOP_LOSS_TARGET}). Cutting loss...", flush=True)
+                close_side = 'sell' if current_side == 'buy' else 'buy'
+                send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
+                return
+
+            # আগের অটো-রিভার্স লজিক (সিগন্যাল উল্টো হলে রিভার্স করা)
+            if current_side != signal_side and confidence >= 55.0:
+                print(f"🔄 Market Reversed! Closing & Reversing to {signal_side.upper()}...", flush=True)
+                close_side = 'sell' if current_side == 'buy' else 'buy'
+                send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(pos_size)))
+                time.sleep(2)
+                
                 if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
-                    print(f"✅ Executing Reverse Order: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
                     send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
-                else:
-                    print(f"⚠️ Reverse signal conflicts with trend ({market_trend}). Position closed, but new trade skipped.", flush=True)
             else:
-                print(f"🔒 Active position exists ({current_side.upper()}). Trend/Signal matches or confidence too low. Holding position.", flush=True)
+                print(f"🔒 Holding position. PnL target not met yet.", flush=True)
             return
 
-        # ৪. কোনো পজিশন না থাকলে স্বাভাবিক নিয়মে নতুন ট্রেড নেওয়া
+        # ৩. কোনো পজিশন না থাকলে নতুন ট্রেড নেওয়া
         if confidence >= 55.0:
             if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
-                print(f"✅ AI Signal Confirmed & Aligned with Trend: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
+                print(f"✅ Opening New Trade: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
                 send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
             else:
-                print(f"⚠️ Signal ({signal_side.upper()}) conflicts with market trend ({market_trend}). Skipping trade.", flush=True)
+                print(f"⚠️ Signal conflicts with trend ({market_trend}). Skipping.", flush=True)
         else:
-            print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.", flush=True)
+            print(f"⚠️ Confidence too low ({confidence:.2f}%). Skipping.", flush=True)
             
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
-
 # প্রতিদিন রাত ১১:৫৮ মিনিটে ডেইলি সামারি পাঠানোর শিডিউল
 schedule.every().day.at("23:58").do(send_daily_profit_summary)
 
