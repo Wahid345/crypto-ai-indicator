@@ -141,6 +141,7 @@ def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
 
 
 # ==================== POSITION CHECK FUNCTION ====================
+
 def check_existing_position(symbol):
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
     url = GATE_HOST + GATE_PREFIX + endpoint
@@ -223,6 +224,12 @@ def send_gate_mainnet_order(symbol, side, contracts):
 def process_symbol(symbol='SOL/USDT'):
     print(f"Checking AI signal and trend for {symbol}...", flush=True)
     
+    # ১টির বেশি ট্রেড প্রতিরোধ করতে প্রথমেই পজিশন চেক
+    has_position, pos_info = check_existing_position(symbol)
+    if has_position:
+        print(f"🔒 Active position exists (Size: {pos_info.get('size')}). Skipping new order.", flush=True)
+        return
+
     try:
         df_raw = fetch_crypto_data(symbol, timeframe='15m', limit=500)
         df = prepare_features(df_raw)
