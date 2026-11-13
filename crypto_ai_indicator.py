@@ -311,8 +311,6 @@ def process_symbol(symbol='SOL/USDT'):
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
 # প্রতিদিন রাত ১১:৫৮ মিনিটে ডেইলি সামারি পাঠানোর শিডিউল
-#
-schedule.every().day.at("23:58").do(send_daily_profit_summary)
 
 def send_daily_profit_summary():
     try:
@@ -320,7 +318,10 @@ def send_daily_profit_summary():
         # এখানে চাইলে টেলিগ্রাম বা অন্যান্য মাধ্যমে সামারি পাঠানোর কোড যুক্ত করতে পারেন
     except Exception as e:
         print(f"❌ Error in daily summary: {e}", flush=True)
-        
+
+# ফাংশন ডিক্লেয়ার করার পরে এখন এটি শিডিউল করুন
+schedule.every().day.at("23:58").do(send_daily_profit_summary)
+
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
