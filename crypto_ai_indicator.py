@@ -94,16 +94,13 @@ def prepare_features(df):
     df = df.dropna()
     return df
 
-def train_and_predict(symbol, timeframe='15m'):
-    df_raw = fetch_crypto_data(symbol, timeframe, limit=500)
-    df = prepare_features(df_raw)
+def train_and_predict(df):
     features = ['RSI', 'EMA_20', 'EMA_50', 'MACD', 'MACD_Signal', 'BB_Width', 'ATR', 'Body_Size', 'Upper_Shadow', 'Lower_Shadow', 'Return']
     X = df[features]
     y = df['Target']
     
-    split = int(len(df) * 0.8)
-    X_train, X_test = X.iloc[:split], X.iloc[split:]
-    y_train, y_test = y.iloc[:split], y.iloc[split:]
+    # সর্বশেষ ক্যান্ডেল বাদে সব ডেটায় ট্রেনিং (সর্বোচ্চ সাম্প্রতিক প্যাটার্ন ধরার জন্য)
+    X_train, y_train = X.iloc[:-1], y.iloc[:-1]
     
     model = XGBClassifier(n_estimators=150, learning_rate=0.05, max_depth=4, random_state=42, eval_metric='logloss')
     model.fit(X_train, y_train)
@@ -133,11 +130,13 @@ def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
         'SIGN': signature
     }
     try:
-        requests.post(url, headers=headers, timeout=10)
-        print(f"✅ Isolated Margin & {leverage}x Leverage successfully enforced for {symbol}", flush=True)
+        resp = requests.post(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            print(f"✅ Isolated Margin & {leverage}x Leverage successfully enforced for {symbol}", flush=True)
+        else:
+            print(f"❌ Leverage setting failed [{resp.status_code}]: {resp.text}", flush=True)
     except Exception as e:
-        print(f"⚠️ Leverage setting note: {e}", flush=True)
-
+        print(f"⚠️ Leverage setting error: {e}", flush=True)
 # ==================== POSITION CHECK FUNCTION ====================
 def check_existing_position(symbol):
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
