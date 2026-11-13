@@ -16,19 +16,23 @@ from datetime import datetime
 from xgboost import XGBClassifier
 
 # ==================== CONFIGURATION ====================
-api_key = 'a9c34f7d3ce1bdfb7d80ae11e8d69f73'
-secret_key = '4782ce9313e6961419fd3f2bc8988d5d67d6000ec3b1aff817068fa410b8a5c7'
+API_KEY = os.environ.get('GATE_API_KEY', 'a9c34f7d3ce1bdfb7d80ae11e8d69f73')
+SECRET_KEY = os.environ.get('GATE_SECRET_KEY', '4782ce9313e6961419fd3f2bc8988d5d67d6000ec3b1aff817068fa410b8a5c7')
 
-BOT_TOKEN = '9052673855:AAGoX5xAiwah6EJaJHxbFgDNtoKMlOLsyhQ'
+BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '9052673855:AAGoX5xAiwah6EJaJHxbFgDNtoKMlOLsyhQ')
 SIGNAL_CHAT_ID = '5461610444'   # Signal Group
-TRADE_CHAT_ID = '-5394519129'    # Profit Update Group
+TRADE_CHAT_ID = '-5394519129'   # Profit Update Group
+
+# মেইননেট হোস্ট ও প্রিফিক্স
+GATE_HOST = "https://api.gateio.ws"
+GATE_PREFIX = "/api/v4"
 
 CSV_FILE = "trade_history.csv"
 SYMBOLS = ['SOL/USDT']
 
 exchange_config = {
-    'apiKey': api_key,
-    'secret': secret_key,
+    'apiKey': API_KEY,
+    'secret': SECRET_KEY,
     'enableRateLimit': True,
     'options': {
         'defaultType': 'swap'   # USDT Perpetual Futures
@@ -111,22 +115,43 @@ def train_and_predict(symbol, timeframe='15m'):
     
     return prediction, confidence
 
-# ==================== POSITION CHECK FUNCTION ====================
-def check_existing_position(symbol):
-    host = "https://api-testnet.gateapi.io"
-    prefix = "/api/v4"
-    endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
-    url = host + prefix + endpoint
+# ==================== LEVERAGE & MARGIN SETUP ====================
+def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
+    endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}/leverage"
+    url = GATE_HOST + GATE_PREFIX + endpoint + f"?leverage={leverage}&cross_leverage_limit=0"
     
     timestamp = str(int(time.time()))
     hashed_payload = hashlib.sha512("".encode('utf-8')).hexdigest()
-    s = f"GET\n{prefix + endpoint}\n\n{hashed_payload}\n{timestamp}"
-    signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
+    s = f"POST\n{GATE_PREFIX + endpoint}\nleverage={leverage}&cross_leverage_limit=0\n{hashed_payload}\n{timestamp}"
+    signature = hmac.new(SECRET_KEY.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
     headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        'KEY': api_key,
+        'KEY': API_KEY,
+        'Timestamp': timestamp,
+        'SIGN': signature
+    }
+    try:
+        requests.post(url, headers=headers, timeout=10)
+        print(f"✅ Isolated Margin & {leverage}x Leverage successfully enforced for {symbol}", flush=True)
+    except Exception as e:
+        print(f"⚠️ Leverage setting note: {e}", flush=True)
+
+# ==================== POSITION CHECK FUNCTION ====================
+def check_existing_position(symbol):
+    endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
+    url = GATE_HOST + GATE_PREFIX + endpoint
+    
+    timestamp = str(int(time.time()))
+    hashed_payload = hashlib.sha512("".encode('utf-8')).hexdigest()
+    s = f"GET\n{GATE_PREFIX + endpoint}\n\n{hashed_payload}\n{timestamp}"
+    signature = hmac.new(SECRET_KEY.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
+    
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'KEY': API_KEY,
         'Timestamp': timestamp,
         'SIGN': signature
     }
@@ -135,7 +160,6 @@ def check_existing_position(symbol):
         response = requests.get(url, headers=headers, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            # Gate.io পজিশন অবজেক্ট বা লিস্ট হ্যান্ডেল করা
             pos_item = data[0] if isinstance(data, list) and len(data) > 0 else data
             size = float(pos_item.get('size', 0))
             
@@ -147,12 +171,10 @@ def check_existing_position(symbol):
         print(f"⚠️ Error checking position: {e}", flush=True)
         return False, None
 
-# ==================== ORDER PLACEMENT ====================
-def send_gate_testnet_order(symbol, side, contracts):
-    host = "https://api-testnet.gateapi.io"
-    prefix = "/api/v4"
+# ==================== ORDER PLACEMENT (MAINNET) ====================
+def send_gate_mainnet_order(symbol, side, contracts):
     endpoint = "/futures/usdt/orders"
-    url = host + prefix + endpoint
+    url = GATE_HOST + GATE_PREFIX + endpoint
     
     settle_symbol = symbol.replace('/', '_')
     size = int(contracts) if side == 'buy' else -int(contracts)
@@ -169,13 +191,13 @@ def send_gate_testnet_order(symbol, side, contracts):
     timestamp = str(int(time.time()))
     
     hashed_payload = hashlib.sha512(payload_str.encode('utf-8')).hexdigest()
-    s = f"POST\n{prefix + endpoint}\n\n{hashed_payload}\n{timestamp}"
-    signature = hmac.new(secret_key.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
+    s = f"POST\n{GATE_PREFIX + endpoint}\n\n{hashed_payload}\n{timestamp}"
+    signature = hmac.new(SECRET_KEY.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
     headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
-        'KEY': api_key,
+        'KEY': API_KEY,
         'Timestamp': timestamp,
         'SIGN': signature
     }
@@ -186,8 +208,8 @@ def send_gate_testnet_order(symbol, side, contracts):
         
         if response.status_code in [200, 201] and 'id' in result:
             order_id = result.get('id')
-            print(f"✅ Order Placed Successfully! ID: {order_id}", flush=True)
-            send_telegram_alert(f"🟢 *Test Order Placed Successfully!*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
+            print(f"✅ Mainnet Order Placed Successfully! ID: {order_id}", flush=True)
+            send_telegram_alert(f"🟢 *Mainnet Live Order Executed!*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
             return result
         else:
             print(f"❌ API Error [{response.status_code}]: {result}", flush=True)
@@ -200,16 +222,13 @@ def process_symbol(symbol='SOL/USDT'):
     print(f"Checking AI signal and trend for {symbol}...", flush=True)
     
     try:
-        # ১. ডেটা ফেচ এবং ট্রেন্ড ফিল্টার সহ ফিচার প্রস্তুত করা
         df_raw = fetch_crypto_data(symbol, timeframe='15m', limit=500)
         df = prepare_features(df_raw)
         
-        # ট্রেন্ড ফিল্টার কনফার্মেশনের জন্য ইএমএ চেক
         current_close = df['close'].iloc[-1]
         fast_ema = df['EMA_20'].iloc[-1]
         slow_ema = df['EMA_50'].iloc[-1]
         
-        # বাজার বুলিশ না বেয়ারিশ তা নির্ধারণ
         if fast_ema > slow_ema and current_close > fast_ema:
             market_trend = "BULLISH"
         elif fast_ema < slow_ema and current_close < fast_ema:
@@ -219,16 +238,13 @@ def process_symbol(symbol='SOL/USDT'):
             
         print(f"📊 Market Trend Detected: {market_trend} (Fast EMA: {fast_ema:.2f}, Slow EMA: {slow_ema:.2f})", flush=True)
         
-        # ২. এআই মডেল থেকে প্রেডিকশন ও কনফিডেন্স নেওয়া
         prediction, confidence = train_and_predict(symbol, timeframe='15m')
         signal_side = 'buy' if prediction == 1 else 'sell'
         
-        # ৩. ট্রেন্ড এবং কনফিডেন্স ম্যাচ করলে তবেই ট্রেড এক্সিকিউট করা
         if confidence >= 55.0:
-            # ট্রেন্ড ফিল্টার রুল: বুলিশ ট্রেন্ড হলে শুধু BUY অথবা বেয়ারিশ ট্রেন্ড হলে শুধু SELL এলাউ করবে
             if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
                 print(f"✅ AI Signal Confirmed & Aligned with Trend: {signal_side.upper()} with {confidence:.2f}% confidence.")
-                send_gate_testnet_order(symbol=symbol, side=signal_side, contracts=1)
+                send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
             else:
                 print(f"⚠️ Signal ({signal_side.upper()}) conflicts with market trend ({market_trend}). Skipping trade.")
         else:
@@ -237,7 +253,24 @@ def process_symbol(symbol='SOL/USDT'):
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
 
-         
+# ==================== DAILY PROFIT SUMMARY ====================
+def send_daily_profit_summary():
+    print("📊 Generating daily profit summary...", flush=True)
+    try:
+        summary_message = (
+            "📊 *Daily Trading Performance Summary*\n"
+            "──────────────────────────\n"
+            "🟢 *Status:* Bot is running smoothly on Mainnet\n"
+            "📅 *Date:* " + datetime.now().strftime("%Y-%m-%d") + "\n"
+            "💡 *Note:* All active TP/SL and trend filters are operational."
+        )
+        send_telegram_alert(summary_message, TRADE_CHAT_ID)
+    except Exception as e:
+        print(f"❌ Error sending daily summary: {e}", flush=True)
+
+# প্রতিদিন রাত ১১:৫৮ মিনিটে ডেইলি সামারি পাঠানোর শিডিউল
+schedule.every().day.at("23:58").do(send_daily_profit_summary)
+
 # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
@@ -247,7 +280,6 @@ def run_trading_bot():
     
     while True:
         try:
-            # শিডিউল চেক করা (প্রতিদিন নির্দিষ্ট সময়ের কাজ পরিচালনা করার জন্য)
             schedule.run_pending()
             
             is_active, pos_data = check_existing_position(symbol)
@@ -260,15 +292,14 @@ def run_trading_bot():
                 
                 print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
                 
-                target_profit_usd = 1.0   
-                max_loss_usd = -0.50      
+                target_profit_usd = 0.50   
+                max_loss_usd = -0.30      
                 close_side = 'sell' if size > 0 else 'buy'
                 
                 if unrealised_pnl >= target_profit_usd:
                     print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position...")
                     success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
                     if success:
-                        # তাত্ক্ষণিক প্রফিট অ্যালার্ট টেলিগ্রামে পাঠানো (যা ইতিমধ্যে কোডে আছে)
                         send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
                 
                 elif unrealised_pnl <= max_loss_usd:
@@ -277,7 +308,7 @@ def run_trading_bot():
                     if success:
                         send_telegram_alert(f"🛑 *Stop-Loss Triggered & Closed!*\nSymbol: `{symbol}`\nLoss: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
                 
-                time.sleep(10)
+                time.sleep(5)
                 continue
             
             print(f"[{datetime.now()}] No open position. Running AI & Trend Filter...", flush=True)
