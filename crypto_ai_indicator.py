@@ -115,11 +115,12 @@ def train_and_predict(df):
 # ==================== LEVERAGE & MARGIN SETUP ====================
 def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}/leverage"
-    url = GATE_HOST + GATE_PREFIX + endpoint + f"?leverage={leverage}&cross_leverage_limit=0"
+    # cross_leverage_limit বাদ দিয়ে শুধু leverage পাঠানো হচ্ছে
+    url = GATE_HOST + GATE_PREFIX + endpoint + f"?leverage={leverage}"
     
     timestamp = str(int(time.time()))
     hashed_payload = hashlib.sha512("".encode('utf-8')).hexdigest()
-    s = f"POST\n{GATE_PREFIX + endpoint}\nleverage={leverage}&cross_leverage_limit=0\n{hashed_payload}\n{timestamp}"
+    s = f"POST\n{GATE_PREFIX + endpoint}\nleverage={leverage}\n{hashed_payload}\n{timestamp}"
     signature = hmac.new(SECRET_KEY.encode('utf-8'), s.encode('utf-8'), hashlib.sha512).hexdigest()
     
     headers = {
@@ -137,6 +138,8 @@ def set_isolated_leverage(symbol='SOL/USDT', leverage=5):
             print(f"❌ Leverage setting failed [{resp.status_code}]: {resp.text}", flush=True)
     except Exception as e:
         print(f"⚠️ Leverage setting error: {e}", flush=True)
+
+
 # ==================== POSITION CHECK FUNCTION ====================
 def check_existing_position(symbol):
     endpoint = f"/futures/usdt/positions/{symbol.replace('/', '_')}"
@@ -237,21 +240,20 @@ def process_symbol(symbol='SOL/USDT'):
             
         print(f"📊 Market Trend Detected: {market_trend} (Fast EMA: {fast_ema:.2f}, Slow EMA: {slow_ema:.2f})", flush=True)
         
-        prediction, confidence = train_and_predict(symbol, timeframe='15m')
+        prediction, confidence = train_and_predict(df)
         signal_side = 'buy' if prediction == 1 else 'sell'
         
         if confidence >= 55.0:
             if (market_trend == "BULLISH" and signal_side == 'buy') or (market_trend == "BEARISH" and signal_side == 'sell'):
-                print(f"✅ AI Signal Confirmed & Aligned with Trend: {signal_side.upper()} with {confidence:.2f}% confidence.")
+                print(f"✅ AI Signal Confirmed & Aligned with Trend: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
                 send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
             else:
-                print(f"⚠️ Signal ({signal_side.upper()}) conflicts with market trend ({market_trend}). Skipping trade.")
+                print(f"⚠️ Signal ({signal_side.upper()}) conflicts with market trend ({market_trend}). Skipping trade.", flush=True)
         else:
-            print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.")
+            print(f"⚠️ Confidence too low ({confidence:.2f}% < 55%). Skipping.", flush=True)
             
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
-
 # ==================== DAILY PROFIT SUMMARY ====================
 def send_daily_profit_summary():
     print("📊 Generating daily profit summary...", flush=True)
