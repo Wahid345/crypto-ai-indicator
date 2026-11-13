@@ -6,3 +6,4 @@ numpy
 ta
 schedule
 xgboost
+scikit-learn
