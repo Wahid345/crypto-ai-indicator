@@ -1,10 +1,8 @@
-ta
+Flask
+requests
 ccxt
-xgboost
 pandas
 numpy
-scikit-learn
+ta
 schedule
-requests
-streamlit
-python-dotenv
+xgboost
