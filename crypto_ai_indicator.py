@@ -239,7 +239,7 @@ def send_gate_mainnet_order(symbol, side, contracts):
 
 
 def process_symbol(symbol='SOL/USDT'):
-    print(f"Checking 3-Timeframe (1m, 5m, 15m) Confluence for {symbol}...", flush=True)
+    print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol}...", flush=True)
     
     try:
         has_position, pos_info = check_existing_position(symbol)
@@ -248,37 +248,32 @@ def process_symbol(symbol='SOL/USDT'):
             print(f"🔒 Position already active. Skipping new trade execution.", flush=True)
             return
         
-        # ১. ৩টি টাইমফ্রেমের ডেটা ফেচ করা (1h এবং 4h বাদ দেওয়া হয়েছে)
+        # ১. 15m এবং 1h টাইমফ্রেমের ডেটা ফেচ করা
+        df_1h = fetch_crypto_data(symbol, timeframe='1h', limit=100)
         df_15m = fetch_crypto_data(symbol, timeframe='15m', limit=500)
-        df_5m = fetch_crypto_data(symbol, timeframe='5m', limit=200)
-        df_1m = fetch_crypto_data(symbol, timeframe='1m', limit=100)
         
         # ২. 15m এআই মডেল প্রেডিকশন
         df_15m_feat = prepare_features(df_15m)
         prediction, confidence = train_and_predict(df_15m_feat)
         signal_side = 'buy' if prediction == 1 else 'sell'
         
-        # ৩. অন্যান্য টাইমফ্রেমের কনফার্মেশন (EMA20 দিয়ে ট্রেন্ড চেক)
-        df_5m_feat = prepare_features(df_5m)
-        df_1m_feat = prepare_features(df_1m)
+        # ৩. 1h টাইমফ্রেমের কনফার্মেশন (EMA20 দিয়ে ট্রেন্ড চেক)
+        df_1h_feat = prepare_features(df_1h)
         
-        close_5m = df_5m_feat['close'].iloc[-1]
-        ema20_5m = df_5m_feat['EMA_20'].iloc[-1]
+        close_1h = df_1h_feat['close'].iloc[-1]
+        ema20_1h = df_1h_feat['EMA_20'].iloc[-1]
         
-        close_1m = df_1m_feat['close'].iloc[-1]
-        ema20_1m = df_1m_feat['EMA_20'].iloc[-1]
+        h1_confirmed = (signal_side == 'buy' and close_1h >= ema20_1h) or (signal_side == 'sell' and close_1h <= ema20_1h)
         
-        m5_confirmed = (signal_side == 'buy' and close_5m >= ema20_5m) or (signal_side == 'sell' and close_5m <= ema20_5m)
-        m1_confirmed = (signal_side == 'buy' and close_1m >= ema20_1m) or (signal_side == 'sell' and close_1m <= ema20_1m)
+        print(f"📊 15m Signal: {signal_side.upper()} ({confidence:.2f}%) | 1h Trend Confirmed: {h1_confirmed}", flush=True)
         
-        print(f"📊 15m Signal: {signal_side.upper()} ({confidence:.2f}%) | 5m: {m5_confirmed} | 1m: {m1_confirmed}", flush=True)
-        
-        # ৩টি টাইমফ্রেম (15m, 5m, 1m) কনফার্ম করলে ট্রেড ওপেন হবে
-        if confidence >= 55.0 and m5_confirmed and m1_confirmed:
-            print(f"✅ Executing Confirmed Signal: {signal_side.upper()} with {confidence:.2f}% confidence.", flush=True)
+        # ৪. কনফিডেন্স >= 65% এবং 1h ট্রেন্ড মিলে গেলে ট্রেড ওপেন হবে (20x লিভারেজ সহ)
+        if confidence >= 65.0 and h1_confirmed:
+            print(f"✅ Executing Confirmed Signal: {signal_side.upper()} with {confidence:.2f}% confidence (20x).", flush=True)
+            # এখানে লিভারেজ ২০x সেট করার ফাংশন বা প্যারামিটার নিশ্চিত করে নেবেন
             send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
         else:
-            print(f"⚠️ 3-TF conditions not fully met. Skipping.", flush=True)
+            print(f"⚠️ Conditions not met (Confidence < 65% or 1h mismatch). Skipping.", flush=True)
             
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)
