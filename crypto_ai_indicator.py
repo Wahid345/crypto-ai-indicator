@@ -14,8 +14,11 @@ import json
 from datetime import datetime
 from xgboost import XGBClassifier
 from flask import Flask
+from trailing_stop import TrailingStopLossManager
 
 
+global active_tsl
+active_tsl = None
 # ==================== CONFIGURATION ====================
 API_KEY = os.environ.get('GATE_API_KEY', 'a9c34f7d3ce1bdfb7d80ae11e8d69f73')
 SECRET_KEY = os.environ.get('GATE_SECRET_KEY', '4782ce9313e6961419fd3f2bc8988d5d67d6000ec3b1aff817068fa410b8a5c7')
@@ -191,16 +194,18 @@ def check_existing_position(symbol):
         return False, None
 
 # ==================== ORDER PLACEMENT (MAINNET) ====================
+
+
 def send_gate_mainnet_order(symbol, side, contracts):
+    global active_tsl  # গ্লোবাল ভেরিয়েবল ব্যবহার করার জন্য
     settle_symbol = symbol.replace('/', '_')
     
-    # ১. অর্ডার প্লেস করার আগে লিভারেজ ২০x (20) সেট করার রিকোয়েস্ট
+    # ১. অর্ডার প্লেস করার আগে লিভারেজ ২০x (20) সেট করার রিকোয়েস্ট
     try:
         lev_endpoint = f"/futures/usdt/lever?contract={settle_symbol}&leverage=20"
         lev_url = GATE_HOST + GATE_PREFIX + lev_endpoint
         
         lev_timestamp = str(int(time.time()))
-        # GET বা POST মেথডের নিয়মানুযায়ী Gate.io v4 API সিগনেচার তৈরি
         lev_s = f"POST\n{GATE_PREFIX + lev_endpoint}\n\n\n{lev_timestamp}"
         lev_signature = hmac.new(SECRET_KEY.encode('utf-8'), lev_s.encode('utf-8'), hashlib.sha512).hexdigest()
         
@@ -257,6 +262,17 @@ def send_gate_mainnet_order(symbol, side, contracts):
             order_id = result.get('id')
             print(f"✅ Mainnet Order Placed Successfully! ID: {order_id}", flush=True)
             send_telegram_alert(f"🟢 *Mainnet Live Order Executed (20x)*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
+            
+            # 🛡️ অর্ডার সফল হওয়ার সাথে সাথে TSL এখানে ইনিশিয়ালাইজ হবে
+            entry_p = float(current_price)  # বর্তমান মার্কেট প্রাইস
+            active_tsl = TrailingStopLossManager(
+                entry_price=entry_p,
+                position_type=side,
+                initial_sl_distance=1.25,
+                trailing_distance=1.25
+            )
+            print(f"🛡️ TSL Active | Entry: {entry_p} | Initial SL: {active_tsl.current_sl}", flush=True)
+            
             return result
         else:
             print(f"❌ API Error [{response.status_code}]: {result}", flush=True)
@@ -265,6 +281,7 @@ def send_gate_mainnet_order(symbol, side, contracts):
         print(f"❌ Request Exception: {e}", flush=True)
         return None
 
+    
 def process_symbol(symbol='SOL/USDT'):
     print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol} (Min Confidence: 70%)...", flush=True)
     
@@ -306,11 +323,14 @@ def process_symbol(symbol='SOL/USDT'):
 
 
         # ==================== MAIN TRADING LOOP ====================
+
+
 def run_trading_bot():
+    global active_tsl
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
     symbol = 'SOL/USDT'
     
-    set_isolated_leverage(symbol, leverage=10)
+    set_isolated_leverage(symbol, leverage=20)  # লিভারেজ ২০x নিশ্চিত করা
     
     while True:
         try:
@@ -323,27 +343,56 @@ def run_trading_bot():
                 unrealised_pnl = float(pos_item.get('unrealised_pnl', 0))
                 size = float(pos_item.get('size', 0))
                 mark_price = float(pos_item.get('mark_price', 0))
+                entry_price = float(pos_item.get('entry_price', mark_price))
+                position_side = 'buy' if size > 0 else 'sell'
                 
                 print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
                 
-                target_profit_usd = 0.50   
-                max_loss_usd = -0.30       
+                target_profit_usd = 5.00   # 🎯 প্রফিট টার্গেট ৫ ডলারে সেট করা হলো
                 close_side = 'sell' if size > 0 else 'buy'
                 
+                # ۱. প্রফিট টার্গেট চেক করার লজিক ($5.00)
                 if unrealised_pnl >= target_profit_usd:
-                    print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position...")
+                    print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position...", flush=True)
                     success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
                     if success:
                         send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
+                    active_tsl = None  # প্রফিট হিট হওয়ার পর TSL রিসেট
+                    time.sleep(5)
+                    continue
+
+                # ২. যদি বট রিস্টার্ট হয় এবং পজিশন অলরেডি খোলা থাকে, তবে TSL ইনিশিয়ালাইজ করে নেওয়া
+                if active_tsl is None:
+                    active_tsl = TrailingStopLossManager(
+                        entry_price=entry_price,
+                        position_type=position_side,
+                        initial_sl_distance=1.25,
+                        trailing_distance=1.25
+                    )
+                    print(f"🛡️ Initialized TSL | Entry: {entry_price} | Initial SL: {active_tsl.current_sl}", flush=True)
                 
-                elif unrealised_pnl <= max_loss_usd:
-                    print(f"🛑 Stop-Loss triggered at ${unrealised_pnl:.2f}! Closing position...")
+                # -------------------------------------------------------------
+                # 🔄 Trailing Stop-Loss আপডেট এবং চেক করার লজিক
+                # -------------------------------------------------------------
+                new_sl, is_updated = active_tsl.update_trailing_stop(mark_price)
+                if is_updated:
+                    print(f"🔄 Trailing SL Updated: {new_sl:.2f} (Mark Price: {mark_price})", flush=True)
+
+                if active_tsl.check_sl_hit(mark_price):
+                    print(f"🚨 TSL Hit at ${mark_price} (SL: {active_tsl.current_sl})! Closing position...", flush=True)
                     success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
                     if success:
-                        send_telegram_alert(f"🛑 *Stop-Loss Triggered & Closed!*\nSymbol: `{symbol}`\nLoss: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
+                        send_telegram_alert(f"🚨 *Trailing Stop-Loss Hit & Closed!*\nSymbol: `{symbol}`\nPnL: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
+                    active_tsl = None  # ট্রেড ক্লোজ হওয়ার পর TSL রিসেট
+                # -------------------------------------------------------------
                 
                 time.sleep(5)
                 continue
+            else:
+                # যদি কোনো ওপেন পজিশন না থাকে, তবে TSL রিসেট করে দেওয়া
+                if active_tsl is not None:
+                    print("ℹ️ Position closed. Resetting TSL manager.", flush=True)
+                    active_tsl = None
             
             print(f"[{datetime.now()}] No open position. Running AI Signal Check...", flush=True)
             process_symbol(symbol)
