@@ -239,7 +239,7 @@ def send_gate_mainnet_order(symbol, side, contracts):
 
 
 def process_symbol(symbol='SOL/USDT'):
-    print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol}...", flush=True)
+    print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol} (Min Confidence: 70%)...", flush=True)
     
     try:
         has_position, pos_info = check_existing_position(symbol)
@@ -257,27 +257,25 @@ def process_symbol(symbol='SOL/USDT'):
         prediction, confidence = train_and_predict(df_15m_feat)
         signal_side = 'buy' if prediction == 1 else 'sell'
         
-        # ৩. 1h টাইমফ্রেমের কনফার্মেশন (EMA20 দিয়ে ট্রেন্ড চেক)
+        # ৩. 1h টাইমফ্রেমের ট্রেন্ড কনফার্মেশন (EMA20)
         df_1h_feat = prepare_features(df_1h)
-        
         close_1h = df_1h_feat['close'].iloc[-1]
         ema20_1h = df_1h_feat['EMA_20'].iloc[-1]
         
+        # মার্কেট যেদিকে যাচ্ছে (Trend following) তা নিশ্চিত করার জন্য ১ ঘণ্টা চার্টের সাথে সিগন্যাল মিল থাকতে হবে
         h1_confirmed = (signal_side == 'buy' and close_1h >= ema20_1h) or (signal_side == 'sell' and close_1h <= ema20_1h)
         
         print(f"📊 15m Signal: {signal_side.upper()} ({confidence:.2f}%) | 1h Trend Confirmed: {h1_confirmed}", flush=True)
         
-        # ৪. কনফিডেন্স >= 65% এবং 1h ট্রেন্ড মিলে গেলে ট্রেড ওপেন হবে (20x লিভারেজ সহ)
-        if confidence >= 65.0 and h1_confirmed:
-            print(f"✅ Executing Confirmed Signal: {signal_side.upper()} with {confidence:.2f}% confidence (20x).", flush=True)
-            # এখানে লিভারেজ ২০x সেট করার ফাংশন বা প্যারামিটার নিশ্চিত করে নেবেন
+        # ৪. কনফিডেন্স অবশ্যই >= 70% হতে হবে এবং 1h ট্রেন্ডের সাথে ম্যাচ করতে হবে
+        if confidence >= 70.0 and h1_confirmed:
+            print(f"✅ Executing High-Confidence Signal: {signal_side.upper()} with {confidence:.2f}% confidence (20x).", flush=True)
             send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
         else:
-            print(f"⚠️ Conditions not met (Confidence < 65% or 1h mismatch). Skipping.", flush=True)
+            print(f"⚠️ Conditions not met (Confidence < 70% or 1h trend mismatch). Skipping trade.", flush=True)
             
     except Exception as e:
-        print(f"❌ Error in process_symbol: {e}", flush=True)
-        
+        print(f"❌ Error in process_symbol: {e}", flush=True)        
         # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
