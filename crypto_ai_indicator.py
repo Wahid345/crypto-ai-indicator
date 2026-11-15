@@ -192,10 +192,38 @@ def check_existing_position(symbol):
 
 # ==================== ORDER PLACEMENT (MAINNET) ====================
 def send_gate_mainnet_order(symbol, side, contracts):
+    settle_symbol = symbol.replace('/', '_')
+    
+    # ১. অর্ডার প্লেস করার আগে লিভারেজ ২০x (20) সেট করার রিকোয়েস্ট
+    try:
+        lev_endpoint = f"/futures/usdt/lever?contract={settle_symbol}&leverage=20"
+        lev_url = GATE_HOST + GATE_PREFIX + lev_endpoint
+        
+        lev_timestamp = str(int(time.time()))
+        # GET বা POST মেথডের নিয়মানুযায়ী Gate.io v4 API সিগনেচার তৈরি
+        lev_s = f"POST\n{GATE_PREFIX + lev_endpoint}\n\n\n{lev_timestamp}"
+        lev_signature = hmac.new(SECRET_KEY.encode('utf-8'), lev_s.encode('utf-8'), hashlib.sha512).hexdigest()
+        
+        lev_headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'KEY': API_KEY,
+            'Timestamp': lev_timestamp,
+            'SIGN': lev_signature
+        }
+        
+        lev_response = requests.post(lev_url, headers=lev_headers, timeout=10)
+        if lev_response.status_code in [200, 201]:
+            print(f"✅ Leverage successfully set to 20x for {symbol}", flush=True)
+        else:
+            print(f"⚠️ Failed to set leverage (Status {lev_response.status_code}): {lev_response.text}", flush=True)
+    except Exception as e:
+        print(f"⚠️ Leverage Request Exception: {e}", flush=True)
+
+    # ২. মূল অর্ডার প্লেস করার লজিক
     endpoint = "/futures/usdt/orders"
     url = GATE_HOST + GATE_PREFIX + endpoint
     
-    settle_symbol = symbol.replace('/', '_')
     size = int(contracts) if side == 'buy' else -int(contracts)
     
     body = {
@@ -228,7 +256,7 @@ def send_gate_mainnet_order(symbol, side, contracts):
         if response.status_code in [200, 201] and 'id' in result:
             order_id = result.get('id')
             print(f"✅ Mainnet Order Placed Successfully! ID: {order_id}", flush=True)
-            send_telegram_alert(f"🟢 *Mainnet Live Order Executed!*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
+            send_telegram_alert(f"🟢 *Mainnet Live Order Executed (20x)*\nSymbol: `{symbol}`\nID: `{order_id}`", SIGNAL_CHAT_ID)
             return result
         else:
             print(f"❌ API Error [{response.status_code}]: {result}", flush=True)
@@ -236,7 +264,6 @@ def send_gate_mainnet_order(symbol, side, contracts):
     except Exception as e:
         print(f"❌ Request Exception: {e}", flush=True)
         return None
-
 
 def process_symbol(symbol='SOL/USDT'):
     print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol} (Min Confidence: 70%)...", flush=True)
@@ -276,8 +303,8 @@ def process_symbol(symbol='SOL/USDT'):
    
     except Exception as e:
         print(f"❌ Error in process_symbol: {e}", flush=True)      
-        
-          
+
+
         # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
