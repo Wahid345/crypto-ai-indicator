@@ -267,15 +267,17 @@ def process_symbol(symbol='SOL/USDT'):
         
         print(f"📊 15m Signal: {signal_side.upper()} ({confidence:.2f}%) | 1h Trend Confirmed: {h1_confirmed}", flush=True)
         
-        # ৪. কনফিডেন্স অবশ্যই >= 70% হতে হবে এবং 1h ট্রেন্ডের সাথে ম্যাচ করতে হবে
-        if confidence >= 70.0 and h1_confirmed:
-            print(f"✅ Executing High-Confidence Signal: {signal_side.upper()} with {confidence:.2f}% confidence (20x).", flush=True)
+        # কনফিডেন্স থ্রেশহোল্ড ৬৫% এবং 1h ট্রেন্ড কনফার্মড হতে হবে
+        if confidence >= 65.0 and h1_confirmed:
+            print(f"✅ Executing Signal: {signal_side.upper()} with {confidence:.2f}% confidence (20x).", flush=True)
             send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
         else:
-            print(f"⚠️ Conditions not met (Confidence < 70% or 1h trend mismatch). Skipping trade.", flush=True)
-            
+            print(f"⚠️ Conditions not met (Confidence < 65% or 1h trend mismatch). Skipping trade.", flush=True)
+   
     except Exception as e:
-        print(f"❌ Error in process_symbol: {e}", flush=True)        
+        print(f"❌ Error in process_symbol: {e}", flush=True)      
+        
+          
         # ==================== MAIN TRADING LOOP ====================
 def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
