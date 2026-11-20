@@ -41,6 +41,12 @@ exchange_config = {
     }
 }
 
+guard = TradeGuardAndExitManager(
+        target_profit=5.00,
+        breakeven_trigger=1.50,
+        base_tsl_gap=1.25,
+    )
+
 exchange = ccxt.gate(exchange_config)
 exchange.load_markets()
 
@@ -365,11 +371,7 @@ def run_trading_bot():
 
     set_isolated_leverage(symbol, leverage=20)  # লিভারেজ ২০x নিশ্চিত করা
 
-    guard = TradeGuardAndExitManager(
-        target_profit=5.00,
-        breakeven_trigger=1.50,
-        base_tsl_gap=1.25,
-    )
+   
 
     while True:
         try:
