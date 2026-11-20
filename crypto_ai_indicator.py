@@ -297,18 +297,19 @@ def process_symbol(symbol='SOL/USDT'):
         df_1h = fetch_crypto_data(symbol, timeframe='1h', limit=100)
         df_15m = fetch_crypto_data(symbol, timeframe='15m', limit=500)
 
-        # সর্বশেষ সম্পূর্ণ ক্লোজড 15m ক্যান্ডেল ও তার টাইমস্ট্যাম্প
-        # আপনার df_15m-এ যদি 'timestamp' কলাম থাকে তবে সেটি নিন; নইলে ইনডেক্স বা বর্তমান সময়ের টাইমস্ট্যাম্প ব্যবহার করুন
         closed_candle = df_15m.iloc[-2] if len(df_15m) >= 2 else df_15m.iloc[-1]
-        current_candle_ts = (
-            int(closed_candle['timestamp'])
-            if 'timestamp' in df_15m.columns
-            else int(time.time() // 900) * 900
-        )
-        # fetch_crypto_data সাধারণত শেষ ক্যান্ডেলটি রানিং/অসম্পূর্ণ রাখলে iloc[-2] ক্লোজড ক্যান্ডেল হিসেবে গণ্য হয়
+        raw_ts = closed_candle['timestamp'] if 'timestamp' in df_15m.columns else closed_candle.name
+
+        if hasattr(raw_ts, "timestamp"):
+            current_candle_ts = int(raw_ts.timestamp())
+        elif raw_ts is not None:
+            current_candle_ts = int(float(raw_ts))
+        else:
+            current_candle_ts = int(time.time() // 900) * 900
+
         is_candle_closed = len(df_15m) >= 2
 
-        # ২. 15m এআই মডেল প্রেডিকশন (ক্লোজড ক্যান্ডেলের ওপর প্রেডিক্ট করলে df_15m.iloc[:-1] পাঠানো সবচেয়ে নিরাপদ)
+        # ২. 15m এআই মডেল প্রেডিকশন
         df_15m_feat = prepare_features(df_15m.iloc[:-1] if len(df_15m) >= 2 else df_15m)
         prediction, confidence = train_and_predict(df_15m_feat)
         signal_side = 'buy' if prediction == 1 else 'sell'
@@ -335,7 +336,7 @@ def process_symbol(symbol='SOL/USDT'):
             flush=True,
         )
 
-        # ৪. TradeGuardAndExitManager দিয়ে এন্ট্রি, কুলডাউন ও ক্লোজড ক্যান্ডেল যাচাই
+        # ৪. এন্ট্রি যাচাই
         allowed = guard.can_enter_trade(
             signal=signal_side,
             htf_1h_trend=htf_1h_trend,
@@ -352,9 +353,9 @@ def process_symbol(symbol='SOL/USDT'):
             print("⚠️ Entry blocked by TradeGuard (Cooldown / Candle Lock / 1h Trend / Confidence).", flush=True)
 
     except Exception as e:
-        print(f"❌ Error in process_symbol: {e}", flush=True)
-
-        # ==================== MAIN TRADING LOOP ====================
+        print(f"❌ Error in process_symbol: {e}", flush=True)   
+        
+             # ==================== MAIN TRADING LOOP ====================
 
 
 def run_trading_bot():
