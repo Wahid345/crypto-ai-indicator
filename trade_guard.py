@@ -65,6 +65,16 @@ class TradeGuardAndExitManager:
 
         return True
 
+    def is_in_cooldown(self, current_candle_ts=None):
+        if time.time() - self.state.get("last_close_time", 0) < COOLDOWN_SECONDS:
+            return True
+        if (
+            current_candle_ts is not None
+            and self.state.get("last_closed_candle_ts") == current_candle_ts
+        ):
+            return True
+        return False
+    
     def evaluate_open_position(
         self, side, entry_price, current_price, unrealized_pnl, atr_15m=0.0
     ):
