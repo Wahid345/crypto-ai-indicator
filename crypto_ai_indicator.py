@@ -15,6 +15,7 @@ from datetime import datetime
 from xgboost import XGBClassifier
 from flask import Flask
 from trailing_stop import TrailingStopLossManager
+from trade_guard import TradeGuardAndExitManager
 
 
 global active_tsl
@@ -283,44 +284,75 @@ def send_gate_mainnet_order(symbol, side, contracts):
 
     
 def process_symbol(symbol='SOL/USDT'):
-    print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol} (Min Confidence: 70%)...", flush=True)
-    
+    print(f"Checking 2-Timeframe (15m, 1h) Confluence for {symbol} (Min Confidence: 65%)...", flush=True)
+
     try:
         has_position, pos_info = check_existing_position(symbol)
-        
+
         if has_position:
-            print(f"🔒 Position already active. Skipping new trade execution.", flush=True)
+            print("🔒 Position already active. Skipping new trade execution.", flush=True)
             return
-        
+
         # ১. 15m এবং 1h টাইমফ্রেমের ডেটা ফেচ করা
         df_1h = fetch_crypto_data(symbol, timeframe='1h', limit=100)
         df_15m = fetch_crypto_data(symbol, timeframe='15m', limit=500)
-        
-        # ২. 15m এআই মডেল প্রেডিকশন
-        df_15m_feat = prepare_features(df_15m)
+
+        # সর্বশেষ সম্পূর্ণ ক্লোজড 15m ক্যান্ডেল ও তার টাইমস্ট্যাম্প
+        # আপনার df_15m-এ যদি 'timestamp' কলাম থাকে তবে সেটি নিন; নইলে ইনডেক্স বা বর্তমান সময়ের টাইমস্ট্যাম্প ব্যবহার করুন
+        closed_candle = df_15m.iloc[-2] if len(df_15m) >= 2 else df_15m.iloc[-1]
+        current_candle_ts = (
+            int(closed_candle['timestamp'])
+            if 'timestamp' in df_15m.columns
+            else int(time.time() // 900) * 900
+        )
+        # fetch_crypto_data সাধারণত শেষ ক্যান্ডেলটি রানিং/অসম্পূর্ণ রাখলে iloc[-2] ক্লোজড ক্যান্ডেল হিসেবে গণ্য হয়
+        is_candle_closed = len(df_15m) >= 2
+
+        # ২. 15m এআই মডেল প্রেডিকশন (ক্লোজড ক্যান্ডেলের ওপর প্রেডিক্ট করলে df_15m.iloc[:-1] পাঠানো সবচেয়ে নিরাপদ)
+        df_15m_feat = prepare_features(df_15m.iloc[:-1] if len(df_15m) >= 2 else df_15m)
         prediction, confidence = train_and_predict(df_15m_feat)
         signal_side = 'buy' if prediction == 1 else 'sell'
-        
+
         # ৩. 1h টাইমফ্রেমের ট্রেন্ড কনফার্মেশন (EMA20)
-        df_1h_feat = prepare_features(df_1h)
-        close_1h = df_1h_feat['close'].iloc[-1]
-        ema20_1h = df_1h_feat['EMA_20'].iloc[-1]
-        
-        # মার্কেট যেদিকে যাচ্ছে (Trend following) তা নিশ্চিত করার জন্য ১ ঘণ্টা চার্টের সাথে সিগন্যাল মিল থাকতে হবে
-        h1_confirmed = (signal_side == 'buy' and close_1h >= ema20_1h) or (signal_side == 'sell' and close_1h <= ema20_1h)
-        
-        print(f"📊 15m Signal: {signal_side.upper()} ({confidence:.2f}%) | 1h Trend Confirmed: {h1_confirmed}", flush=True)
-        
-        # কনফিডেন্স থ্রেশহোল্ড ৬৫% এবং 1h ট্রেন্ড কনফার্মড হতে হবে
-        if confidence >= 65.0 and h1_confirmed:
+        df_1h_feat = prepare_features(df_1h.iloc[:-1] if len(df_1h) >= 2 else df_1h)
+        close_1h = float(df_1h_feat['close'].iloc[-1])
+        ema20_1h = float(df_1h_feat['EMA_20'].iloc[-1])
+
+        if close_1h >= ema20_1h:
+            htf_1h_trend = "BULLISH"
+        elif close_1h <= ema20_1h:
+            htf_1h_trend = "BEARISH"
+        else:
+            htf_1h_trend = "NEUTRAL"
+
+        h1_confirmed = (signal_side == 'buy' and htf_1h_trend == "BULLISH") or (
+            signal_side == 'sell' and htf_1h_trend == "BEARISH"
+        )
+
+        print(
+            f"📊 15m Signal: {signal_side.upper()} ({confidence:.2f}%) | "
+            f"1h Trend: {htf_1h_trend} (Confirmed: {h1_confirmed})",
+            flush=True,
+        )
+
+        # ৪. TradeGuardAndExitManager দিয়ে এন্ট্রি, কুলডাউন ও ক্লোজড ক্যান্ডেল যাচাই
+        allowed = guard.can_enter_trade(
+            signal=signal_side,
+            htf_1h_trend=htf_1h_trend,
+            current_candle_ts=current_candle_ts,
+            is_candle_closed=is_candle_closed,
+            ai_confidence=float(confidence),
+            min_conf=65.0,
+        )
+
+        if allowed:
             print(f"✅ Executing Signal: {signal_side.upper()} with {confidence:.2f}% confidence (20x).", flush=True)
             send_gate_mainnet_order(symbol=symbol, side=signal_side, contracts=1)
         else:
-            print(f"⚠️ Conditions not met (Confidence < 65% or 1h trend mismatch). Skipping trade.", flush=True)
-   
-    except Exception as e:
-        print(f"❌ Error in process_symbol: {e}", flush=True)      
+            print("⚠️ Entry blocked by TradeGuard (Cooldown / Candle Lock / 1h Trend / Confidence).", flush=True)
 
+    except Exception as e:
+        print(f"❌ Error in process_symbol: {e}", flush=True)
 
         # ==================== MAIN TRADING LOOP ====================
 
@@ -329,15 +361,21 @@ def run_trading_bot():
     global active_tsl
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
     symbol = 'SOL/USDT'
-    
+
     set_isolated_leverage(symbol, leverage=20)  # লিভারেজ ২০x নিশ্চিত করা
-    
+
+    guard = TradeGuardAndExitManager(
+        target_profit=5.00,
+        breakeven_trigger=1.50,
+        base_tsl_gap=1.25,
+    )
+
     while True:
         try:
             schedule.run_pending()
-            
+
             is_active, pos_data = check_existing_position(symbol)
-            
+
             if is_active:
                 pos_item = pos_data[0] if isinstance(pos_data, list) and len(pos_data) > 0 else pos_data
                 unrealised_pnl = float(pos_item.get('unrealised_pnl', 0))
@@ -345,60 +383,85 @@ def run_trading_bot():
                 mark_price = float(pos_item.get('mark_price', 0))
                 entry_price = float(pos_item.get('entry_price', mark_price))
                 position_side = 'buy' if size > 0 else 'sell'
-                
+
+                # আপনার কোডে যদি 15m ATR ভেরিয়েবল থাকে তবে এখানে দিন, নইলে 0.0 থাকাই নিরাপদ
+                atr_15m = 0.0
+
                 print(f"📊 Active Position Live PnL: ${unrealised_pnl:.2f} USDT | Mark Price: ${mark_price}", flush=True)
-                
-                target_profit_usd = 5.00   # 🎯 প্রফিট টার্গেট ৫ ডলারে সেট করা হলো
+
                 close_side = 'sell' if size > 0 else 'buy'
-                
-                # ۱. প্রফিট টার্গেট চেক করার লজিক ($5.00)
-                if unrealised_pnl >= target_profit_usd:
-                    print(f"🎯 Target profit of ${target_profit_usd} reached! Closing position...", flush=True)
-                    success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
+                action, trigger_price = guard.evaluate_open_position(
+                    side=position_side,
+                    entry_price=entry_price,
+                    current_price=mark_price,
+                    unrealised_pnl=unrealised_pnl,
+                    atr_15m=atr_15m,
+                )
+
+                if action in ("CLOSE_TP", "CLOSE_SL"):
+                    print(f"🛑 {action} triggered at mark ${mark_price} (trigger: {trigger_price}). Closing...", flush=True)
+                    success = send_gate_mainnet_order(
+                        symbol=symbol,
+                        side=close_side,
+                        contracts=abs(int(size)),
+                    )
                     if success:
-                        send_telegram_alert(f"🎯 *Target Profit Reached & Closed!*\nSymbol: `{symbol}`\nProfit: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
-                    active_tsl = None  # প্রফিট হিট হওয়ার পর TSL রিসেট
+                        guard.on_trade_closed(reason=f"{action} @ {mark_price}")
+                        send_telegram_alert(
+                            f"📌 *Position Closed ({action})!*\nSymbol: `{symbol}`\nPnL: `${unrealised_pnl:.2f}`",
+                            TRADE_CHAT_ID,
+                        )
+                        active_tsl = None
                     time.sleep(5)
                     continue
 
-                # ২. যদি বট রিস্টার্ট হয় এবং পজিশন অলরেডি খোলা থাকে, তবে TSL ইনিশিয়ালাইজ করে নেওয়া
+                # ব্রেক-ইভেন লক সক্রিয় হলে পুরনো টাইট TSL যাতে লসে না ফেলে সেদিকে খেয়াল রাখুন
                 if active_tsl is None:
                     active_tsl = TrailingStopLossManager(
                         entry_price=entry_price,
                         position_type=position_side,
                         initial_sl_distance=1.25,
-                        trailing_distance=1.25
+                        trailing_distance=1.25,
                     )
                     print(f"🛡️ Initialized TSL | Entry: {entry_price} | Initial SL: {active_tsl.current_sl}", flush=True)
-                
-                # -------------------------------------------------------------
-                # 🔄 Trailing Stop-Loss আপডেট এবং চেক করার লজিক
-                # -------------------------------------------------------------
+
                 new_sl, is_updated = active_tsl.update_trailing_stop(mark_price)
                 if is_updated:
                     print(f"🔄 Trailing SL Updated: {new_sl:.2f} (Mark Price: {mark_price})", flush=True)
 
                 if active_tsl.check_sl_hit(mark_price):
                     print(f"🚨 TSL Hit at ${mark_price} (SL: {active_tsl.current_sl})! Closing position...", flush=True)
-                    success = send_gate_mainnet_order(symbol=symbol, side=close_side, contracts=abs(int(size)))
+                    success = send_gate_mainnet_order(
+                        symbol=symbol,
+                        side=close_side,
+                        contracts=abs(int(size)),
+                    )
                     if success:
-                        send_telegram_alert(f"🚨 *Trailing Stop-Loss Hit & Closed!*\nSymbol: `{symbol}`\nPnL: `${unrealised_pnl:.2f}`", TRADE_CHAT_ID)
-                    active_tsl = None  # ট্রেড ক্লোজ হওয়ার পর TSL রিসেট
-                # -------------------------------------------------------------
-                
+                        guard.on_trade_closed(reason=f"TSL_HIT @ {mark_price}")
+                        send_telegram_alert(
+                            f"🚨 *Trailing Stop-Loss Hit & Closed!*\nSymbol: `{symbol}`\nPnL: `${unrealised_pnl:.2f}`",
+                            TRADE_CHAT_ID,
+                        )
+                        active_tsl = None
+
                 time.sleep(5)
                 continue
             else:
-                # যদি কোনো ওপেন পজিশন না থাকে, তবে TSL রিসেট করে দেওয়া
                 if active_tsl is not None:
                     print("ℹ️ Position closed. Resetting TSL manager.", flush=True)
+                    guard.on_trade_closed(reason="EXTERNAL_OR_MANUAL_CLOSE")
                     active_tsl = None
-            
+
+            if guard.is_in_cooldown():
+                print(f"[{datetime.now()}] Cooldown active. Skipping signal check...", flush=True)
+                time.sleep(60)
+                continue
+
             print(f"[{datetime.now()}] No open position. Running AI Signal Check...", flush=True)
             process_symbol(symbol)
-            
+
             time.sleep(60)
-            
+
         except Exception as e:
             print(f"Error in main loop: {e}", flush=True)
             time.sleep(10)
