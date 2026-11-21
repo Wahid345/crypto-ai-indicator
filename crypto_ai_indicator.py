@@ -42,10 +42,10 @@ exchange_config = {
 }
 
 guard = TradeGuardAndExitManager(
-        target_profit=5.00,
-        breakeven_trigger=1.50,
-        base_tsl_gap=1.25,
-    )
+    target_profit=2.00,
+    breakeven_trigger=1.00,
+    base_tsl_gap=1.25,
+)
 
 exchange = ccxt.gate(exchange_config)
 exchange.load_markets()
@@ -369,7 +369,7 @@ def run_trading_bot():
     print("🚀 SOL-Focused AI Mainnet Trading Bot [Active with Daily Summary]...", flush=True)
     symbol = 'SOL/USDT'
 
-    set_isolated_leverage(symbol, leverage=20)  # লিভারেজ ২০x নিশ্চিত করা
+    set_isolated_leverage(symbol, leverage=15)  # লিভারেজ ১৫x নিশ্চিত করা
 
    
 
